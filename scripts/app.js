@@ -35,8 +35,8 @@ const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 1.8;
 const ORIENTATION_SENSITIVITY = 0.005;
 const PITCH_SENSITIVITY = 0.0045;
-const PITCH_MIN = (-Math.PI) / 3;
-const PITCH_MAX = Math.PI / 3;
+const PITCH_MIN = -Math.PI + 0.01;
+const PITCH_MAX = Math.PI - 0.01;
 const OBLIQUITY_RAD = (23.4367 * Math.PI) / 180;
 
 let interactiveItems = [];
@@ -496,34 +496,43 @@ function computeMoonState(date, sunEclipticLongitudeDeg) {
 
 function drawHorizon(ctxHelpers) {
   const { center, radius } = ctxHelpers;
-  const points = [];
-  for (let deg = 0; deg <= 360; deg += 3) {
-    const azimuth = degreesToRadians(deg);
-    const transformed = applyViewTransform({ azimuth, altitude: 0 });
-    const maxAltitude = Math.PI / 2;
-    const clampedAlt = Math.max(-maxAltitude + 0.0001, Math.min(maxAltitude - 0.0001, transformed.altitude));
-    const altitudeOffset = maxAltitude - clampedAlt;
-    const normalized = altitudeOffset / maxAltitude;
-    const starRadius = normalized * radius;
-    const x = center.x + Math.sin(transformed.azimuth) * starRadius;
-    const y = center.y - Math.cos(transformed.azimuth) * starRadius;
-    points.push({ x, y });
-  }
-
   const horizonPath = new Path2D();
-  points.forEach((point, index) => {
-    if (index === 0) {
+  let moved = false;
+  const stepDeg = 3;
+
+  for (let deg = 0; deg <= 360; deg += stepDeg) {
+    const azimuth = degreesToRadians(deg);
+    const point = projectHorizontalToCanvas(
+      ctxHelpers,
+      { azimuth, altitude: 0 },
+      { allowBehind: true }
+    );
+    if (!point) {
+      continue;
+    }
+
+    if (!moved) {
       horizonPath.moveTo(point.x, point.y);
+      moved = true;
     } else {
       horizonPath.lineTo(point.x, point.y);
     }
-  });
-  horizonPath.closePath();
+  }
+
+  if (moved) {
+    horizonPath.closePath();
+  }
 
   ctx.save();
   ctx.strokeStyle = 'rgba(255, 235, 59, 0.85)';
   ctx.lineWidth = 2.2;
-  ctx.stroke(horizonPath);
+  if (moved) {
+    ctx.stroke(horizonPath);
+  } else {
+    ctx.beginPath();
+    ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+    ctx.stroke();
+  }
   ctx.restore();
 
   ctx.save();
@@ -604,11 +613,19 @@ function applyViewTransform(coords) {
   };
 }
 
-function projectHorizontalToCanvas(ctxHelpers, coords) {
+function projectHorizontalToCanvas(ctxHelpers, coords, options = {}) {
   const { center, radius } = ctxHelpers;
   const transformed = applyViewTransform(coords);
   const maxAltitude = Math.PI / 2;
-  const altitudeClamped = Math.max(-maxAltitude + 0.0001, Math.min(maxAltitude - 0.0001, transformed.altitude));
+  const EPSILON = 0.0001;
+  const allowBehind = options.allowBehind ?? false;
+
+  if (!allowBehind && transformed.altitude <= -EPSILON) {
+    return null;
+  }
+
+  const minAltitude = allowBehind ? -maxAltitude + EPSILON : EPSILON;
+  const altitudeClamped = Math.min(maxAltitude - EPSILON, Math.max(transformed.altitude, minAltitude));
   const altitudeOffset = maxAltitude - altitudeClamped;
   const normalized = altitudeOffset / maxAltitude;
   const starRadius = normalized * radius;
@@ -632,7 +649,12 @@ function placeLabelOutsideCircle(point, center, radius, offset = 12) {
 }
 
 function drawStar(ctxHelpers, star, coords) {
-  const { x, y } = projectHorizontalToCanvas(ctxHelpers, coords);
+  const point = projectHorizontalToCanvas(ctxHelpers, coords);
+  if (!point) {
+    return null;
+  }
+
+  const { x, y } = point;
 
   const size = magnitudeToSize(star.mag);
   const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
@@ -818,11 +840,10 @@ function drawMessierObjects(ctxHelpers, latitude, longitude, observationDate) {
 
   MESSIER_OBJECTS.forEach((object) => {
     const coords = equatorialToHorizontal(object, latitude, longitude, observationDate);
-    if (coords.altitude <= 0) {
+    const point = projectHorizontalToCanvas(ctxHelpers, coords);
+    if (!point) {
       return;
     }
-
-    const point = projectHorizontalToCanvas(ctxHelpers, coords);
     const radius = drawMessierIcon(point, object.type);
 
     rendered.push({
@@ -841,6 +862,9 @@ function drawMessierObjects(ctxHelpers, latitude, longitude, observationDate) {
 
 function drawSunIcon(ctxHelpers, horizontalCoords) {
   const point = projectHorizontalToCanvas(ctxHelpers, horizontalCoords);
+  if (!point) {
+    return null;
+  }
   const radius = 11 * state.zoomFactor;
   ctx.save();
   ctx.beginPath();
@@ -857,6 +881,9 @@ function drawSunIcon(ctxHelpers, horizontalCoords) {
 
 function drawPlanetIcon(ctxHelpers, horizontalCoords, planet) {
   const point = projectHorizontalToCanvas(ctxHelpers, horizontalCoords);
+  if (!point) {
+    return null;
+  }
   const baseSize = planet.size * state.zoomFactor;
   ctx.save();
   ctx.translate(point.x, point.y);
@@ -932,7 +959,10 @@ function describeMoonPhaseName(illumination, waxing) {
 
 function drawMoonIcon(ctxHelpers, moonHorizontal, sunHorizontal, moonState) {
   const centerPoint = projectHorizontalToCanvas(ctxHelpers, moonHorizontal);
-  const sunPoint = projectHorizontalToCanvas(ctxHelpers, sunHorizontal);
+  if (!centerPoint) {
+    return null;
+  }
+  const sunPoint = projectHorizontalToCanvas(ctxHelpers, sunHorizontal, { allowBehind: true });
   const radius = 10 * state.zoomFactor;
 
   ctx.save();
@@ -1151,8 +1181,8 @@ function drawEcliptic(ctxHelpers, latitude, longitude, observationDate) {
   for (let lambda = 0; lambda <= 360; lambda += 3) {
     const equatorial = eclipticToEquatorial(lambda);
     const coords = equatorialToHorizontal(equatorial, latitude, longitude, observationDate);
-    if (coords.altitude > 0) {
-      const point = projectHorizontalToCanvas(ctxHelpers, coords);
+    const point = projectHorizontalToCanvas(ctxHelpers, coords);
+    if (point) {
       currentSegment.push(point);
     } else if (currentSegment.length > 1) {
       segments.push(currentSegment);
@@ -1217,8 +1247,8 @@ function drawEquatorialGrid(ctxHelpers, latitude, longitude, observationDate, ra
 
     samples.forEach((sample) => {
       const coords = equatorialToHorizontal(sample, latitude, longitude, observationDate);
-      if (coords.altitude > 0) {
-        const point = projectHorizontalToCanvas(ctxHelpers, coords);
+      const point = projectHorizontalToCanvas(ctxHelpers, coords);
+      if (point) {
         currentSegment.push(point);
         visiblePoints.push({ point, coords });
       } else if (currentSegment.length > 1) {
@@ -1386,11 +1416,11 @@ function renderSky() {
     }
 
     const coords = equatorialToHorizontal(star, lat, lon, observationDate);
-    if (coords.altitude <= 0) {
-      return;
-    }
 
     const renderedStar = drawStar(ctxHelpers, star, coords);
+    if (!renderedStar) {
+      return;
+    }
     const entry = {
       star,
       coords,
@@ -1435,10 +1465,10 @@ function renderSky() {
   const planetInteractive = [];
   solarSystem.planets.forEach((planet) => {
     const planetHorizontal = equatorialToHorizontal(planet, lat, lon, observationDate);
-    if (planetHorizontal.altitude <= 0) {
+    const renderInfo = drawPlanetIcon(ctxHelpers, planetHorizontal, planet);
+    if (!renderInfo) {
       return;
     }
-    const renderInfo = drawPlanetIcon(ctxHelpers, planetHorizontal, planet);
     planetInteractive.push({
       kind: 'planet',
       displayName: planet.displayName,
@@ -1451,8 +1481,8 @@ function renderSky() {
   });
 
   const sunAltDeg = (sunHorizontal.altitude * 180) / Math.PI;
-  if (sunHorizontal.altitude > 0) {
-    const sunRender = drawSunIcon(ctxHelpers, sunHorizontal);
+  const sunRender = drawSunIcon(ctxHelpers, sunHorizontal);
+  if (sunRender) {
     planetInteractive.push({
       kind: 'sun',
       displayName: 'Sun',
@@ -1465,8 +1495,8 @@ function renderSky() {
 
   const moonState = computeMoonState(observationDate, solarSystem.sun.eclipticLongitudeDeg);
   const moonHorizontal = equatorialToHorizontal(moonState, lat, lon, observationDate);
-  if (moonHorizontal.altitude > 0) {
-    const moonRender = drawMoonIcon(ctxHelpers, moonHorizontal, sunHorizontal, moonState);
+  const moonRender = drawMoonIcon(ctxHelpers, moonHorizontal, sunHorizontal, moonState);
+  if (moonRender) {
     planetInteractive.push({
       kind: 'moon',
       displayName: 'Moon',
