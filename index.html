@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deep Sky Object Finder</title>
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <header>
+    <h1>Deep Sky Object Finder</h1>
+    <p>Render the night sky from your current location or explore deep-sky highlights.</p>
+  </header>
+  <main>
+    <section class="controls">
+      <div class="control-group">
+        <label for="latitude">Latitude (°)</label>
+        <input type="number" id="latitude" name="latitude" step="0.0001" min="-90" max="90" />
+      </div>
+      <div class="control-group">
+        <label for="longitude">Longitude (°)</label>
+        <input type="number" id="longitude" name="longitude" step="0.0001" min="-180" max="180" />
+      </div>
+      <div class="control-group">
+        <label for="time-select">Time</label>
+        <select id="time-select">
+          <option value="now">Now</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="control-group" id="time-input-group" hidden>
+        <label for="custom-time">UTC Time</label>
+        <input type="datetime-local" id="custom-time" />
+      </div>
+      <div class="control-group checkbox">
+        <label>
+          <input type="checkbox" id="show-constellations" checked />
+          Overlay constellations
+        </label>
+      </div>
+      <div class="control-group checkbox">
+        <label>
+          <input type="checkbox" id="show-equatorial-grid" checked />
+          Show RA/Dec grid
+        </label>
+      </div>
+      <div class="control-group checkbox">
+        <label>
+          <input type="checkbox" id="show-constellation-labels" />
+          Show constellation labels
+        </label>
+      </div>
+      <div class="control-group checkbox">
+        <label>
+          <input type="checkbox" id="show-star-tooltips" checked />
+          Enable star & Messier tooltips
+        </label>
+      </div>
+      <div class="control-group checkbox">
+        <label>
+          <input type="checkbox" id="show-messier" checked />
+          Display Messier objects
+        </label>
+      </div>
+      <div class="control-group compact">
+        <label for="ra-grid-step">RA grid spacing (hours)</label>
+        <input type="number" id="ra-grid-step" min="0.5" max="6" step="0.5" value="4" />
+      </div>
+      <div class="control-group compact">
+        <label for="dec-grid-step">Declination grid spacing (°)</label>
+        <input type="number" id="dec-grid-step" min="10" max="30" step="5" value="30" />
+      </div>
+      <div class="control-group">
+        <label for="zoom-level">Zoom</label>
+        <input type="range" id="zoom-level" min="0.6" max="1.8" step="0.05" value="1" />
+      </div>
+      <button id="use-location">Use My Location</button>
+      <button id="render">Render Sky</button>
+      <p id="feedback" role="status"></p>
+    </section>
+    <section class="sky-container">
+      <canvas id="sky-canvas" width="900" height="900" aria-label="Night sky map"></canvas>
+      <div id="sky-tooltip" role="status" aria-live="polite"></div>
+      <div class="legend">
+        <p><strong>Legend</strong></p>
+        <p>Circle edge: horizon • Center: zenith</p>
+        <p>Brighter dots = brighter stars</p>
+        <p>Optional overlay traces constellation lines</p>
+        <p>Grid marks Right Ascension (hours) & Declination (°)</p>
+        <p>Yellow ring = horizon • Green arc = ecliptic</p>
+        <p>Drag the map to rotate • Scroll or adjust zoom to magnify</p>
+        <p>Colorful icons mark planets • Moon icon shows current phase</p>
+        <p>Icons highlight Messier deep-sky objects by type</p>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <small>
+      Bright star data curated from public domain catalogs. Designed for quick orientation, not navigation.
+    </small>
+  </footer>
+  <script type="module" src="./scripts/app.js"></script>
+</body>
+</html>

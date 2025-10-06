@@ -1,0 +1,22 @@
+export const MESSIER_OBJECTS = [
+  { designation: 'M1', name: 'Crab Nebula', type: 'supernova_remnant', raHours: 5.5756, decDeg: 22.0145 },
+  { designation: 'M13', name: 'Hercules Cluster', type: 'globular_cluster', raHours: 16.6947, decDeg: 36.4613 },
+  { designation: 'M31', name: 'Andromeda Galaxy', type: 'galaxy', raHours: 0.712, decDeg: 41.2692 },
+  { designation: 'M33', name: 'Triangulum Galaxy', type: 'galaxy', raHours: 1.556, decDeg: 30.6602 },
+  { designation: 'M42', name: 'Orion Nebula', type: 'nebula', raHours: 5.5889, decDeg: -5.3911 },
+  { designation: 'M45', name: 'Pleiades', type: 'open_cluster', raHours: 3.7922, decDeg: 24.1053 },
+  { designation: 'M51', name: 'Whirlpool Galaxy', type: 'galaxy', raHours: 13.497, decDeg: 47.1952 },
+  { designation: 'M57', name: 'Ring Nebula', type: 'planetary_nebula', raHours: 18.8931, decDeg: 33.0283 },
+  { designation: 'M65', name: 'NGC 3623', type: 'galaxy', raHours: 11.2856, decDeg: 13.0924 },
+  { designation: 'M66', name: 'NGC 3627', type: 'galaxy', raHours: 11.3389, decDeg: 12.9914 },
+  { designation: 'M81', name: 'Bode\'s Galaxy', type: 'galaxy', raHours: 9.925, decDeg: 69.065 },
+  { designation: 'M82', name: 'Cigar Galaxy', type: 'galaxy', raHours: 9.925, decDeg: 69.6786 },
+  { designation: 'M87', name: 'Virgo A', type: 'galaxy', raHours: 12.5137, decDeg: 12.3911 },
+  { designation: 'M92', name: 'NGC 6341', type: 'globular_cluster', raHours: 17.2889, decDeg: 43.135 },
+  { designation: 'M101', name: 'Pinwheel Galaxy', type: 'galaxy', raHours: 14.0533, decDeg: 54.3489 },
+  { designation: 'M104', name: 'Sombrero Galaxy', type: 'galaxy', raHours: 12.6667, decDeg: -11.6231 },
+  { designation: 'M106', name: 'NGC 4258', type: 'galaxy', raHours: 12.315, decDeg: 47.3039 },
+  { designation: 'M11', name: 'Wild Duck Cluster', type: 'open_cluster', raHours: 18.8514, decDeg: -6.2684 },
+  { designation: 'M8', name: 'Lagoon Nebula', type: 'nebula', raHours: 18.0422, decDeg: -24.3814 },
+  { designation: 'M20', name: 'Trifid Nebula', type: 'nebula', raHours: 18.0417, decDeg: -23.0139 }
+];
