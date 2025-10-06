@@ -2,6 +2,7 @@ import { BRIGHT_STARS } from '../data/brightStars.js';
 import { CONSTELLATIONS } from '../data/constellations.js';
 import { MESSIER_OBJECTS } from '../data/messier.js';
 import { PLANETS, EARTH_ORBIT } from '../data/planets.js';
+import { BAYER_GREEK, CONSTELLATION_GENITIVE } from '../data/starNames.js';
 
 const canvas = document.getElementById('sky-canvas');
 const ctx = canvas.getContext('2d');
@@ -48,6 +49,94 @@ const MESSIER_TYPE_LABELS = {
   globular_cluster: 'Globular Cluster',
   supernova_remnant: 'Supernova Remnant',
 };
+
+function capitalizeWord(value) {
+  if (!value) {
+    return value;
+  }
+  return value[0].toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function getConstellationGenitive(code) {
+  if (!code) {
+    return '';
+  }
+  return CONSTELLATION_GENITIVE[code] || code;
+}
+
+function formatBayerDesignation(star) {
+  if (!star?.bayer) {
+    return '';
+  }
+  const base = star.bayer.slice(0, 3);
+  const normalized = capitalizeWord(base);
+  const greek = BAYER_GREEK[normalized] || capitalizeWord(star.bayer);
+  const remainder = star.bayer.length > 3 ? star.bayer.slice(3) : '';
+  const component = star.component ? star.component.trim() : '';
+  const suffix = [remainder, component].filter(Boolean).join('');
+  const label = suffix ? `${greek} ${suffix}`.trim() : greek;
+  const constellationName = getConstellationGenitive(star.constellation);
+  return constellationName ? `${label} ${constellationName}`.trim() : label;
+}
+
+function formatFlamsteedDesignation(star) {
+  if (!star?.flamsteed) {
+    return '';
+  }
+  const constellationName = getConstellationGenitive(star.constellation);
+  return constellationName ? `${star.flamsteed} ${constellationName}` : star.flamsteed;
+}
+
+function getStarNameAliases(star) {
+  const aliases = [];
+  const seen = new Set();
+  const add = (value) => {
+    if (value && !seen.has(value)) {
+      seen.add(value);
+      aliases.push(value);
+    }
+  };
+
+  add(star?.name);
+  add(star?.properName);
+  add(formatBayerDesignation(star));
+  add(formatFlamsteedDesignation(star));
+  if (star?.hr) {
+    add(`HR ${star.hr}`);
+  }
+  if (star?.dm) {
+    add(star.dm);
+  }
+
+  return aliases;
+}
+
+function formatStarTooltip(item) {
+  const alternate = [];
+  if (item.properName && item.properName !== item.displayName) {
+    alternate.push(item.properName);
+  }
+  if (item.bayerDesignation && item.bayerDesignation !== item.displayName) {
+    alternate.push(item.bayerDesignation);
+  }
+  if (item.flamsteedDesignation && item.flamsteedDesignation !== item.displayName) {
+    alternate.push(item.flamsteedDesignation);
+  }
+  if (item.hr) {
+    alternate.push(`HR ${item.hr}`);
+  }
+
+  const heading = alternate.length > 0 ? `${item.displayName} (${alternate.join(', ')})` : item.displayName;
+  const details = [];
+  if (Number.isFinite(item.magnitude)) {
+    details.push(`mag ${item.magnitude.toFixed(2)}`);
+  }
+  if (Number.isFinite(item.altitudeDeg)) {
+    details.push(`alt ${item.altitudeDeg.toFixed(1)}°`);
+  }
+
+  return details.length > 0 ? `${heading} • ${details.join(' • ')}` : heading;
+}
 
 const state = {
   latitude: null,
@@ -464,6 +553,9 @@ function drawCompass(ctxHelpers) {
 }
 
 function magnitudeToSize(magnitude) {
+  if (!Number.isFinite(magnitude)) {
+    return 1.5;
+  }
   const base = 5 - magnitude;
   return Math.max(1, base * 0.9);
 }
@@ -875,8 +967,7 @@ function updateInteractiveItems(items) {
 
 function describeInteractiveItem(item) {
   if (item.kind === 'star') {
-    const magnitude = Number.isFinite(item.magnitude) ? item.magnitude.toFixed(2) : '—';
-    return `${item.name} • mag ${magnitude}`;
+    return formatStarTooltip(item);
   }
 
   if (item.kind === 'messier') {
@@ -1273,24 +1364,47 @@ function renderSky() {
   const interactive = [];
 
   BRIGHT_STARS.forEach((star) => {
-    const coords = equatorialToHorizontal(star, lat, lon, observationDate);
-    if (coords.altitude > 0) {
-      const renderedStar = drawStar(ctxHelpers, star, coords);
-      visibleStars.set(star.name, {
-        star,
-        coords,
-        point: { x: renderedStar.x, y: renderedStar.y },
-        size: renderedStar.size,
-      });
-      interactive.push({
-        kind: 'star',
-        name: star.name,
-        magnitude: star.mag,
-        x: renderedStar.x,
-        y: renderedStar.y,
-        radius: Math.max(renderedStar.size + 6, 8),
-      });
+    if (!Number.isFinite(star.raHours) || !Number.isFinite(star.decDeg)) {
+      return;
     }
+
+    const coords = equatorialToHorizontal(star, lat, lon, observationDate);
+    if (coords.altitude <= 0) {
+      return;
+    }
+
+    const renderedStar = drawStar(ctxHelpers, star, coords);
+    const entry = {
+      star,
+      coords,
+      point: { x: renderedStar.x, y: renderedStar.y },
+      size: renderedStar.size,
+    };
+
+    const aliases = getStarNameAliases(star);
+    if (aliases.length === 0) {
+      aliases.push(star.name || (star.hr ? `HR ${star.hr}` : 'Star'));
+    }
+    aliases.forEach((alias) => {
+      visibleStars.set(alias, entry);
+    });
+
+    const altitudeDeg = (coords.altitude * 180) / Math.PI;
+    const displayName = aliases[0];
+
+    interactive.push({
+      kind: 'star',
+      displayName,
+      properName: star.properName,
+      bayerDesignation: formatBayerDesignation(star),
+      flamsteedDesignation: formatFlamsteedDesignation(star),
+      magnitude: star.mag,
+      altitudeDeg,
+      hr: star.hr,
+      x: renderedStar.x,
+      y: renderedStar.y,
+      radius: Math.max(renderedStar.size + 6, 8),
+    });
   });
 
   if (state.showConstellations) {
