@@ -3,6 +3,7 @@ import { CONSTELLATIONS } from '../data/constellations.js';
 import { MESSIER_OBJECTS } from '../data/messier.js';
 import { MESSIER_IMAGES } from '../data/messierImages.js';
 import { PLANETS, EARTH_ORBIT } from '../data/planets.js';
+import { PLANET_IMAGES } from '../data/planetImages.js';
 import { BAYER_GREEK, CONSTELLATION_GENITIVE } from '../data/starNames.js';
 
 const canvas = document.getElementById('sky-canvas');
@@ -354,6 +355,35 @@ function buildMessierImageUrl(item) {
   }
   const key = item.designation.trim().toUpperCase();
   return MESSIER_IMAGES[key] || null;
+}
+
+function buildPlanetImageUrl(item) {
+  if (!item) {
+    return null;
+  }
+
+  const candidates = [];
+  if (item.displayName) {
+    candidates.push(item.displayName);
+  }
+  if (item.name && item.name !== item.displayName) {
+    candidates.push(item.name);
+  }
+
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const match = Object.keys(PLANET_IMAGES).find(
+      (key) => key.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (match) {
+      return PLANET_IMAGES[match];
+    }
+  }
+
+  return null;
 }
 
 function formatStarTooltip(item) {
@@ -1336,16 +1366,32 @@ function describeInteractiveItem(item) {
 
   if (item.kind === 'planet') {
     const text = `${item.displayName} • alt ${item.altitudeDeg.toFixed(1)}° • ${item.distanceAU.toFixed(2)} AU`;
+    const htmlParts = [`<div class="tooltip-text">${escapeHtml(text)}</div>`];
+    const imageUrl = buildPlanetImageUrl(item);
+    if (imageUrl) {
+      const alt = `${item.displayName} preview`;
+      htmlParts.push(
+        `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
+      );
+    }
     return {
-      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      html: htmlParts.join(''),
       ariaLabel: text,
     };
   }
 
   if (item.kind === 'sun') {
     const text = `Sun • alt ${item.altitudeDeg.toFixed(1)}°`;
+    const htmlParts = [`<div class="tooltip-text">${escapeHtml(text)}</div>`];
+    const imageUrl = buildPlanetImageUrl({ displayName: 'Sun' });
+    if (imageUrl) {
+      const alt = `${item.displayName || 'Sun'} preview`;
+      htmlParts.push(
+        `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
+      );
+    }
     return {
-      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      html: htmlParts.join(''),
       ariaLabel: text,
     };
   }
@@ -1355,8 +1401,16 @@ function describeInteractiveItem(item) {
     const text = `${item.displayName} • ${item.phaseName} (${Math.round(
       item.illumination * 100
     )}% lit) • alt ${item.altitudeDeg.toFixed(1)}°${distance ? ` • ${distance}` : ''}`;
+    const htmlParts = [`<div class="tooltip-text">${escapeHtml(text)}</div>`];
+    const imageUrl = buildPlanetImageUrl({ displayName: 'Moon' });
+    if (imageUrl) {
+      const alt = `${item.displayName} preview`;
+      htmlParts.push(
+        `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
+      );
+    }
     return {
-      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      html: htmlParts.join(''),
       ariaLabel: text,
     };
   }
