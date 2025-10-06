@@ -24,6 +24,9 @@ const raGridInput = document.getElementById('ra-grid-step');
 const decGridInput = document.getElementById('dec-grid-step');
 const zoomInput = document.getElementById('zoom-level');
 const maxMagnitudeInput = document.getElementById('max-magnitude');
+const searchInput = document.getElementById('object-search');
+const searchButton = document.getElementById('object-search-button');
+const searchOptions = document.getElementById('object-search-options');
 const tooltip = document.getElementById('sky-tooltip');
 
 const DEFAULT_RA_STEP = 4;
@@ -44,6 +47,7 @@ let isRotating = false;
 let activePointerId = null;
 let lastPointerX = 0;
 let lastPointerY = 0;
+let isRendering = false;
 
 const maxMagnitudeInputValue = parseFloat(maxMagnitudeInput?.value);
 const initialMaxMagnitude = Number.isFinite(maxMagnitudeInputValue)
@@ -120,6 +124,202 @@ function getStarNameAliases(star) {
   return aliases;
 }
 
+function isSearchableStarName(name) {
+  if (typeof name !== 'string') {
+    return false;
+  }
+  const trimmed = name.trim();
+  if (!trimmed || !/[a-zA-Z]/.test(trimmed)) {
+    return false;
+  }
+  const upper = trimmed.toUpperCase();
+  const excludedPrefixes = ['HR ', 'HD ', 'DM ', 'TYC ', 'HIP '];
+  if (excludedPrefixes.some((prefix) => upper.startsWith(prefix))) {
+    return false;
+  }
+  return true;
+}
+
+function getConstellationCoordinates(constellation) {
+  if (constellation?.label && Number.isFinite(constellation.label.raHours) && Number.isFinite(constellation.label.decDeg)) {
+    return {
+      raHours: constellation.label.raHours,
+      decDeg: constellation.label.decDeg,
+    };
+  }
+
+  const points = [];
+  (constellation?.lines || []).forEach((segment) => {
+    segment.forEach((vertex) => {
+      if (vertex && Number.isFinite(vertex.raHours) && Number.isFinite(vertex.decDeg)) {
+        points.push(vertex);
+      }
+    });
+  });
+
+  if (points.length === 0) {
+    return null;
+  }
+
+  let x = 0;
+  let y = 0;
+  let z = 0;
+
+  points.forEach(({ raHours, decDeg }) => {
+    const raRad = degreesToRadians(raHours * 15);
+    const decRad = degreesToRadians(decDeg);
+    const cosDec = Math.cos(decRad);
+    x += cosDec * Math.cos(raRad);
+    y += cosDec * Math.sin(raRad);
+    z += Math.sin(decRad);
+  });
+
+  const length = Math.sqrt(x * x + y * y + z * z) || 1;
+  const raHours = normalizeDegrees((Math.atan2(y, x) * 180) / Math.PI) / 15;
+  const decDeg = (Math.asin(z / length) * 180) / Math.PI;
+  return { raHours, decDeg };
+}
+
+function buildSearchIndex() {
+  const entries = [];
+  const seen = new Set();
+
+  const addEntry = (name, type, resolve, displayName) => {
+    if (!name || typeof resolve !== 'function') {
+      return;
+    }
+    const normalized = name.trim();
+    if (!normalized) {
+      return;
+    }
+    const key = `${type}:${normalized.toLowerCase()}`;
+    if (seen.has(key)) {
+      return;
+    }
+    entries.push({
+      name: normalized,
+      type,
+      resolve,
+      displayName: displayName || normalized,
+    });
+    seen.add(key);
+  };
+
+  MESSIER_OBJECTS.forEach((object) => {
+    if (!Number.isFinite(object.raHours) || !Number.isFinite(object.decDeg)) {
+      return;
+    }
+    const resolver = () => ({ raHours: object.raHours, decDeg: object.decDeg });
+    addEntry(object.designation, 'messier', resolver, object.designation);
+    if (object.name && object.name !== object.designation) {
+      addEntry(object.name, 'messier', resolver, object.name);
+    }
+  });
+
+  CONSTELLATIONS.forEach((constellation) => {
+    const coords = getConstellationCoordinates(constellation);
+    if (!coords) {
+      return;
+    }
+    const resolver = () => ({ raHours: coords.raHours, decDeg: coords.decDeg });
+    addEntry(constellation.name, 'constellation', resolver, constellation.name);
+    if (constellation.abbreviation) {
+      addEntry(constellation.abbreviation, 'constellation', resolver, constellation.name);
+    }
+  });
+
+  PLANETS.forEach((planet) => {
+    const resolver = ({ observationDate }) => {
+      if (!(observationDate instanceof Date)) {
+        return null;
+      }
+      const solarSystem = computeSolarSystemBodies(observationDate);
+      return solarSystem.planets.find((entry) => entry.name === planet.name) || null;
+    };
+    addEntry(planet.displayName, 'planet', resolver, planet.displayName);
+    if (planet.name && planet.name !== planet.displayName) {
+      addEntry(planet.name, 'planet', resolver, planet.displayName);
+    }
+  });
+
+  const sunResolver = ({ observationDate }) => {
+    if (!(observationDate instanceof Date)) {
+      return null;
+    }
+    const solarSystem = computeSolarSystemBodies(observationDate);
+    return solarSystem.sun;
+  };
+  addEntry('Sun', 'sun', sunResolver, 'Sun');
+
+  const moonResolver = ({ observationDate }) => {
+    if (!(observationDate instanceof Date)) {
+      return null;
+    }
+    const solarSystem = computeSolarSystemBodies(observationDate);
+    const moonState = computeMoonState(observationDate, solarSystem.sun.eclipticLongitudeDeg);
+    return moonState;
+  };
+  addEntry('Moon', 'moon', moonResolver, 'Moon');
+
+  BRIGHT_STARS.forEach((star) => {
+    if (!Number.isFinite(star.raHours) || !Number.isFinite(star.decDeg)) {
+      return;
+    }
+    const baseResolver = () => ({ raHours: star.raHours, decDeg: star.decDeg });
+    const aliases = getStarNameAliases(star);
+    if (aliases.length > 0) {
+      const primary = aliases[0];
+      if (isSearchableStarName(primary)) {
+        addEntry(primary, 'star', baseResolver, primary);
+      }
+      if (star.properName && star.properName !== primary && isSearchableStarName(star.properName)) {
+        addEntry(star.properName, 'star', baseResolver, star.properName);
+      }
+    } else if (isSearchableStarName(star.name)) {
+      addEntry(star.name, 'star', baseResolver, star.name);
+    }
+  });
+
+  return entries;
+}
+
+function populateSearchSuggestions(entries) {
+  if (!searchOptions || !Array.isArray(entries)) {
+    return;
+  }
+  const MAX_SUGGESTIONS = 3000;
+  const fragment = document.createDocumentFragment();
+  const added = new Set();
+  for (let index = 0; index < entries.length && added.size < MAX_SUGGESTIONS; index += 1) {
+    const entry = entries[index];
+    const key = entry.name.toLowerCase();
+    if (added.has(key)) {
+      continue;
+    }
+    added.add(key);
+    const option = document.createElement('option');
+    option.value = entry.name;
+    fragment.appendChild(option);
+  }
+  searchOptions.innerHTML = '';
+  searchOptions.appendChild(fragment);
+}
+
+function findSearchEntry(query, entries) {
+  if (!query) {
+    return null;
+  }
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  const exact = entries.find((entry) => entry.name.toLowerCase() === normalized);
+  if (exact) {
+    return exact;
+  }
+  return entries.find((entry) => entry.name.toLowerCase().includes(normalized)) || null;
+}
+
 function formatStarTooltip(item) {
   const alternate = [];
   if (item.properName && item.properName !== item.displayName) {
@@ -164,6 +364,9 @@ const state = {
   orientationRad: 0,
   pitchRad: 0,
 };
+
+const searchIndex = buildSearchIndex();
+populateSearchSuggestions(searchIndex);
 
 function reRenderIfPossible() {
   if (isRenderableLocation(state.latitude, state.longitude)) {
@@ -1400,6 +1603,26 @@ function drawEquatorialGrid(ctxHelpers, latitude, longitude, observationDate, ra
   ctx.restore();
 }
 
+function centerOnEquatorial(raHours, decDeg, latitude, longitude, observationDate) {
+  if (!Number.isFinite(raHours) || !Number.isFinite(decDeg)) {
+    return false;
+  }
+
+  if (isRendering) {
+    return false;
+  }
+
+  const horizontal = equatorialToHorizontal({ raHours, decDeg }, latitude, longitude, observationDate);
+  const targetOrientation = wrapAngle(-horizontal.azimuth);
+  state.orientationRad = targetOrientation;
+
+  const desiredPitch = clamp(Math.PI / 2 - horizontal.altitude, PITCH_MIN, PITCH_MAX);
+  state.pitchRad = desiredPitch;
+
+  renderSky();
+  return true;
+}
+
 function prepareObservationDate() {
   if (state.timeMode === 'now') {
     return new Date();
@@ -1418,6 +1641,10 @@ function isRenderableLocation(lat, lon) {
 }
 
 function renderSky() {
+  if (isRendering) {
+    return;
+  }
+
   const lat = parseFloat(latInput.value);
   const lon = parseFloat(lonInput.value);
 
@@ -1426,175 +1653,180 @@ function renderSky() {
     return;
   }
 
-  state.latitude = lat;
-  state.longitude = lon;
+  isRendering = true;
+  try {
+    state.latitude = lat;
+    state.longitude = lon;
 
-  const observationDate = prepareObservationDate();
-  const ctxHelpers = prepareCanvas();
+    const observationDate = prepareObservationDate();
+    const ctxHelpers = prepareCanvas();
 
-  hideTooltip();
+    hideTooltip();
 
-  ctx.fillStyle = '#020412';
-  ctx.fillRect(0, 0, ctxHelpers.size, ctxHelpers.size);
+    ctx.fillStyle = '#020412';
+    ctx.fillRect(0, 0, ctxHelpers.size, ctxHelpers.size);
 
-  drawHorizon(ctxHelpers);
-  drawCompass(ctxHelpers);
+    drawHorizon(ctxHelpers);
+    drawCompass(ctxHelpers);
 
-  const solarSystem = computeSolarSystemBodies(observationDate);
-  const sunHorizontal = equatorialToHorizontal(solarSystem.sun, lat, lon, observationDate);
+    const solarSystem = computeSolarSystemBodies(observationDate);
+    const sunHorizontal = equatorialToHorizontal(solarSystem.sun, lat, lon, observationDate);
 
-  if (state.showEquatorialGrid) {
-    drawEquatorialGrid(
-      ctxHelpers,
-      lat,
-      lon,
-      observationDate,
-      state.raStepHours,
-      state.decStepDegrees
-    );
-  }
-
-  drawEcliptic(ctxHelpers, lat, lon, observationDate);
-
-  const visibleStars = new Map();
-  const interactive = [];
-  let projectedConstellations = [];
-  const magnitudeLimit = Number.isFinite(state.maxStarMagnitude)
-    ? state.maxStarMagnitude
-    : DEFAULT_MAX_MAGNITUDE;
-
-  BRIGHT_STARS.forEach((star) => {
-    if (!Number.isFinite(star.raHours) || !Number.isFinite(star.decDeg)) {
-      return;
-    }
-
-    if (Number.isFinite(star.mag) && star.mag > magnitudeLimit) {
-      return;
-    }
-
-    const coords = equatorialToHorizontal(star, lat, lon, observationDate);
-
-    const renderedStar = drawStar(ctxHelpers, star, coords);
-    if (!renderedStar) {
-      return;
-    }
-    const entry = {
-      star,
-      coords,
-      point: { x: renderedStar.x, y: renderedStar.y },
-      size: renderedStar.size,
-    };
-
-    const aliases = getStarNameAliases(star);
-    if (aliases.length === 0) {
-      aliases.push(star.name || (star.hr ? `HR ${star.hr}` : 'Star'));
-    }
-
-    const altitudeDeg = (coords.altitude * 180) / Math.PI;
-    const displayName = aliases[0];
-
-    interactive.push({
-      kind: 'star',
-      displayName,
-      properName: star.properName,
-      bayerDesignation: formatBayerDesignation(star),
-      flamsteedDesignation: formatFlamsteedDesignation(star),
-      magnitude: star.mag,
-      altitudeDeg,
-      hr: star.hr,
-      x: renderedStar.x,
-      y: renderedStar.y,
-      radius: Math.max(renderedStar.size + 6, 8),
-    });
-
-    aliases.forEach((alias) => {
-      if (!visibleStars.has(alias)) {
-        visibleStars.set(alias, entry);
-      }
-    });
-  });
-
-  if (state.showConstellations || state.showConstellationLabels) {
-    projectedConstellations = CONSTELLATIONS.map((constellation) => ({
-      data: constellation,
-      projection: projectConstellation(
-        constellation,
+    if (state.showEquatorialGrid) {
+      drawEquatorialGrid(
         ctxHelpers,
         lat,
         lon,
         observationDate,
-        visibleStars
-      ),
-    }));
-  }
-
-  if (state.showConstellations) {
-    drawConstellations(ctxHelpers, projectedConstellations);
-  }
-
-  if (state.showConstellationLabels) {
-    drawConstellationLabels(ctxHelpers, projectedConstellations);
-  }
-
-  const planetInteractive = [];
-  solarSystem.planets.forEach((planet) => {
-    const planetHorizontal = equatorialToHorizontal(planet, lat, lon, observationDate);
-    const renderInfo = drawPlanetIcon(ctxHelpers, planetHorizontal, planet);
-    if (!renderInfo) {
-      return;
+        state.raStepHours,
+        state.decStepDegrees
+      );
     }
-    planetInteractive.push({
-      kind: 'planet',
-      displayName: planet.displayName,
-      altitudeDeg: (planetHorizontal.altitude * 180) / Math.PI,
-      distanceAU: planet.distanceAU,
-      x: renderInfo.point.x,
-      y: renderInfo.point.y,
-      radius: renderInfo.radius + 6,
+
+    drawEcliptic(ctxHelpers, lat, lon, observationDate);
+
+    const visibleStars = new Map();
+    const interactive = [];
+    let projectedConstellations = [];
+    const magnitudeLimit = Number.isFinite(state.maxStarMagnitude)
+      ? state.maxStarMagnitude
+      : DEFAULT_MAX_MAGNITUDE;
+
+    BRIGHT_STARS.forEach((star) => {
+      if (!Number.isFinite(star.raHours) || !Number.isFinite(star.decDeg)) {
+        return;
+      }
+
+      if (Number.isFinite(star.mag) && star.mag > magnitudeLimit) {
+        return;
+      }
+
+      const coords = equatorialToHorizontal(star, lat, lon, observationDate);
+
+      const renderedStar = drawStar(ctxHelpers, star, coords);
+      if (!renderedStar) {
+        return;
+      }
+      const entry = {
+        star,
+        coords,
+        point: { x: renderedStar.x, y: renderedStar.y },
+        size: renderedStar.size,
+      };
+
+      const aliases = getStarNameAliases(star);
+      if (aliases.length === 0) {
+        aliases.push(star.name || (star.hr ? `HR ${star.hr}` : 'Star'));
+      }
+
+      const altitudeDeg = (coords.altitude * 180) / Math.PI;
+      const displayName = aliases[0];
+
+      interactive.push({
+        kind: 'star',
+        displayName,
+        properName: star.properName,
+        bayerDesignation: formatBayerDesignation(star),
+        flamsteedDesignation: formatFlamsteedDesignation(star),
+        magnitude: star.mag,
+        altitudeDeg,
+        hr: star.hr,
+        x: renderedStar.x,
+        y: renderedStar.y,
+        radius: Math.max(renderedStar.size + 6, 8),
+      });
+
+      aliases.forEach((alias) => {
+        if (!visibleStars.has(alias)) {
+          visibleStars.set(alias, entry);
+        }
+      });
     });
-  });
 
-  const sunAltDeg = (sunHorizontal.altitude * 180) / Math.PI;
-  const sunRender = drawSunIcon(ctxHelpers, sunHorizontal);
-  if (sunRender) {
-    planetInteractive.push({
-      kind: 'sun',
-      displayName: 'Sun',
-      altitudeDeg: sunAltDeg,
-      x: sunRender.point.x,
-      y: sunRender.point.y,
-      radius: sunRender.radius + 8,
+    if (state.showConstellations || state.showConstellationLabels) {
+      projectedConstellations = CONSTELLATIONS.map((constellation) => ({
+        data: constellation,
+        projection: projectConstellation(
+          constellation,
+          ctxHelpers,
+          lat,
+          lon,
+          observationDate,
+          visibleStars
+        ),
+      }));
+    }
+
+    if (state.showConstellations) {
+      drawConstellations(ctxHelpers, projectedConstellations);
+    }
+
+    if (state.showConstellationLabels) {
+      drawConstellationLabels(ctxHelpers, projectedConstellations);
+    }
+
+    const planetInteractive = [];
+    solarSystem.planets.forEach((planet) => {
+      const planetHorizontal = equatorialToHorizontal(planet, lat, lon, observationDate);
+      const renderInfo = drawPlanetIcon(ctxHelpers, planetHorizontal, planet);
+      if (!renderInfo) {
+        return;
+      }
+      planetInteractive.push({
+        kind: 'planet',
+        displayName: planet.displayName,
+        altitudeDeg: (planetHorizontal.altitude * 180) / Math.PI,
+        distanceAU: planet.distanceAU,
+        x: renderInfo.point.x,
+        y: renderInfo.point.y,
+        radius: renderInfo.radius + 6,
+      });
     });
+
+    const sunAltDeg = (sunHorizontal.altitude * 180) / Math.PI;
+    const sunRender = drawSunIcon(ctxHelpers, sunHorizontal);
+    if (sunRender) {
+      planetInteractive.push({
+        kind: 'sun',
+        displayName: 'Sun',
+        altitudeDeg: sunAltDeg,
+        x: sunRender.point.x,
+        y: sunRender.point.y,
+        radius: sunRender.radius + 8,
+      });
+    }
+
+    const moonState = computeMoonState(observationDate, solarSystem.sun.eclipticLongitudeDeg);
+    const moonHorizontal = equatorialToHorizontal(moonState, lat, lon, observationDate);
+    const moonRender = drawMoonIcon(ctxHelpers, moonHorizontal, sunHorizontal, moonState);
+    if (moonRender) {
+      planetInteractive.push({
+        kind: 'moon',
+        displayName: 'Moon',
+        altitudeDeg: (moonHorizontal.altitude * 180) / Math.PI,
+        illumination: moonState.illumination,
+        phaseName: describeMoonPhaseName(moonState.illumination, moonState.waxing),
+        distanceKm: moonState.distanceKm,
+        x: moonRender.point.x,
+        y: moonRender.point.y,
+        radius: moonRender.radius + 6,
+      });
+    }
+
+    if (state.showMessierObjects) {
+      const messierInteractive = drawMessierObjects(ctxHelpers, lat, lon, observationDate);
+      interactive.push(...messierInteractive);
+    }
+
+    updateInteractiveItems(interactive.concat(planetInteractive));
+
+    updateFeedback(
+      `Sky rendered for lat ${lat.toFixed(2)}°, lon ${lon.toFixed(2)}° at ${observationDate.toUTCString()}`,
+      false
+    );
+  } finally {
+    isRendering = false;
   }
-
-  const moonState = computeMoonState(observationDate, solarSystem.sun.eclipticLongitudeDeg);
-  const moonHorizontal = equatorialToHorizontal(moonState, lat, lon, observationDate);
-  const moonRender = drawMoonIcon(ctxHelpers, moonHorizontal, sunHorizontal, moonState);
-  if (moonRender) {
-    planetInteractive.push({
-      kind: 'moon',
-      displayName: 'Moon',
-      altitudeDeg: (moonHorizontal.altitude * 180) / Math.PI,
-      illumination: moonState.illumination,
-      phaseName: describeMoonPhaseName(moonState.illumination, moonState.waxing),
-      distanceKm: moonState.distanceKm,
-      x: moonRender.point.x,
-      y: moonRender.point.y,
-      radius: moonRender.radius + 6,
-    });
-  }
-
-  if (state.showMessierObjects) {
-    const messierInteractive = drawMessierObjects(ctxHelpers, lat, lon, observationDate);
-    interactive.push(...messierInteractive);
-  }
-
-  updateInteractiveItems(interactive.concat(planetInteractive));
-
-  updateFeedback(
-    `Sky rendered for lat ${lat.toFixed(2)}°, lon ${lon.toFixed(2)}° at ${observationDate.toUTCString()}`,
-    false
-  );
 }
 
 function applyManualLocation(lat, lon) {
@@ -1727,6 +1959,46 @@ function handleMaxMagnitudeInput(event) {
   }
 }
 
+function handleObjectSearch() {
+  if (!searchInput) {
+    return;
+  }
+
+  const query = searchInput.value.trim();
+  if (!query) {
+    updateFeedback('Enter an object name to center on.', true);
+    return;
+  }
+
+  const match = findSearchEntry(query, searchIndex);
+  if (!match) {
+    updateFeedback(`Could not find "${query}" in the catalog.`, true);
+    return;
+  }
+
+  const lat = parseFloat(latInput.value);
+  const lon = parseFloat(lonInput.value);
+  if (!isRenderableLocation(lat, lon)) {
+    updateFeedback('Provide a valid latitude and longitude before centering on objects.', true);
+    return;
+  }
+
+  const observationDate = prepareObservationDate();
+  const resolved = match.resolve({ observationDate, latitude: lat, longitude: lon });
+  if (!resolved || !Number.isFinite(resolved.raHours) || !Number.isFinite(resolved.decDeg)) {
+    updateFeedback(`Unable to determine the position of ${match.displayName}.`, true);
+    return;
+  }
+
+  const centered = centerOnEquatorial(resolved.raHours, resolved.decDeg, lat, lon, observationDate);
+  if (!centered) {
+    updateFeedback('Sky rendering is already in progress. Try again shortly.', true);
+    return;
+  }
+
+  updateFeedback(`Centered on ${match.displayName}.`, false);
+}
+
 renderButton.addEventListener('click', renderSky);
 locationButton.addEventListener('click', requestLocation);
 timeSelect.addEventListener('change', handleTimeSelectionChange);
@@ -1776,6 +2048,19 @@ if (messierInput) {
   messierInput.addEventListener('change', (event) => {
     state.showMessierObjects = event.target.checked;
     reRenderIfPossible();
+  });
+}
+
+if (searchButton) {
+  searchButton.addEventListener('click', handleObjectSearch);
+}
+
+if (searchInput) {
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleObjectSearch();
+    }
   });
 }
 

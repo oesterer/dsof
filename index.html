@@ -86,6 +86,20 @@
         <label for="zoom-level">Zoom</label>
         <input type="range" id="zoom-level" min="1" max="10" step="0.05" value="1" />
       </div>
+      <div class="control-group">
+        <label for="object-search">Find object</label>
+        <div class="search-controls">
+          <input
+            type="search"
+            id="object-search"
+            list="object-search-options"
+            placeholder="e.g. Orion, Jupiter, M42"
+            autocomplete="off"
+          />
+          <datalist id="object-search-options"></datalist>
+          <button type="button" id="object-search-button">Center</button>
+        </div>
+      </div>
       <button id="use-location">Use My Location</button>
       <button id="render">Render Sky</button>
       <p id="feedback" role="status"></p>
