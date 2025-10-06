@@ -669,27 +669,103 @@ function drawStar(ctxHelpers, star, coords) {
   return { x, y, size };
 }
 
-function drawConstellations(ctxHelpers, visibleStars) {
+function projectConstellation(
+  constellation,
+  ctxHelpers,
+  latitude,
+  longitude,
+  observationDate,
+  visibleStars
+) {
+  const firstLine = constellation.lines?.[0];
+  const firstVertex = firstLine?.[0];
+
+  const segments = [];
+  const visiblePoints = [];
+
+  const usesCoordinateVertices =
+    firstVertex && typeof firstVertex === 'object' && Number.isFinite(firstVertex.raHours);
+
+  if (usesCoordinateVertices) {
+    (constellation.lines || []).forEach((line) => {
+      let currentSegment = [];
+      line.forEach((vertex) => {
+        const coords = equatorialToHorizontal(vertex, latitude, longitude, observationDate);
+        const point = projectHorizontalToCanvas(ctxHelpers, coords);
+        if (point) {
+          currentSegment.push(point);
+          visiblePoints.push(point);
+        } else if (currentSegment.length > 1) {
+          segments.push(currentSegment);
+          currentSegment = [];
+        } else {
+          currentSegment = [];
+        }
+      });
+      if (currentSegment.length > 1) {
+        segments.push(currentSegment);
+      }
+    });
+  } else {
+    (constellation.lines || []).forEach((line) => {
+      const points = [];
+      line.forEach((name) => {
+        const entry = visibleStars?.get(name);
+        if (entry?.point) {
+          points.push(entry.point);
+        }
+      });
+      if (points.length >= 2) {
+        segments.push(points);
+        visiblePoints.push(...points);
+      }
+    });
+  }
+
+  let labelPoint = null;
+  if (constellation.label && usesCoordinateVertices) {
+    const labelHorizontal = equatorialToHorizontal(
+      constellation.label,
+      latitude,
+      longitude,
+      observationDate
+    );
+    labelPoint = projectHorizontalToCanvas(ctxHelpers, labelHorizontal);
+  } else if (!labelPoint && visiblePoints.length > 0) {
+    const sum = visiblePoints.reduce(
+      (acc, point) => ({
+        x: acc.x + point.x,
+        y: acc.y + point.y,
+      }),
+      { x: 0, y: 0 }
+    );
+    labelPoint = {
+      x: sum.x / visiblePoints.length,
+      y: sum.y / visiblePoints.length,
+    };
+  }
+
+  return { segments, visiblePoints, labelPoint };
+}
+
+function drawConstellations(ctxHelpers, projectedConstellations) {
+  if (!Array.isArray(projectedConstellations) || projectedConstellations.length === 0) {
+    return;
+  }
   ctx.save();
   ctx.lineWidth = 1.4;
   ctx.strokeStyle = 'rgba(154, 213, 255, 0.55)';
   ctx.shadowColor = 'rgba(120, 180, 255, 0.35)';
   ctx.shadowBlur = 7;
 
-  CONSTELLATIONS.forEach(({ lines }) => {
-    lines.forEach(([fromName, toName]) => {
-      const fromEntry = visibleStars.get(fromName);
-      const toEntry = visibleStars.get(toName);
-      if (!fromEntry || !toEntry) {
+  projectedConstellations.forEach(({ projection }) => {
+    projection.segments.forEach((segment) => {
+      if (segment.length < 2) {
         return;
       }
-
-      const fromPoint = fromEntry.point;
-      const toPoint = toEntry.point;
-
       ctx.beginPath();
-      ctx.moveTo(fromPoint.x, fromPoint.y);
-      ctx.lineTo(toPoint.x, toPoint.y);
+      ctx.moveTo(segment[0].x, segment[0].y);
+      segment.slice(1).forEach((point) => ctx.lineTo(point.x, point.y));
       ctx.stroke();
     });
   });
@@ -697,7 +773,10 @@ function drawConstellations(ctxHelpers, visibleStars) {
   ctx.restore();
 }
 
-function drawConstellationLabels(ctxHelpers, visibleStars) {
+function drawConstellationLabels(ctxHelpers, projectedConstellations) {
+  if (!Array.isArray(projectedConstellations) || projectedConstellations.length === 0) {
+    return;
+  }
   ctx.save();
   ctx.font = '12px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(190, 220, 255, 0.85)';
@@ -708,26 +787,15 @@ function drawConstellationLabels(ctxHelpers, visibleStars) {
 
   const { center, radius } = ctxHelpers;
 
-  CONSTELLATIONS.forEach(({ name, lines }) => {
-    const starNames = new Set();
-    lines.forEach(([fromName, toName]) => {
-      starNames.add(fromName);
-      starNames.add(toName);
-    });
-
-    const points = [];
-    starNames.forEach((starName) => {
-      const entry = visibleStars.get(starName);
-      if (entry) {
-        points.push(entry.point);
-      }
-    });
-
-    if (points.length < 2) {
+  projectedConstellations.forEach(({ data, projection }) => {
+    const candidates = projection.labelPoint
+      ? [projection.labelPoint]
+      : projection.visiblePoints;
+    if (!candidates || candidates.length === 0) {
       return;
     }
 
-    const sum = points.reduce(
+    const sum = candidates.reduce(
       (acc, point) => ({
         x: acc.x + point.x,
         y: acc.y + point.y,
@@ -735,17 +803,17 @@ function drawConstellationLabels(ctxHelpers, visibleStars) {
       { x: 0, y: 0 }
     );
 
-    const avgPoint = {
-      x: sum.x / points.length,
-      y: sum.y / points.length,
+    const labelPoint = {
+      x: sum.x / candidates.length,
+      y: sum.y / candidates.length,
     };
 
-    const distanceFromCenter = Math.hypot(avgPoint.x - center.x, avgPoint.y - center.y);
+    const distanceFromCenter = Math.hypot(labelPoint.x - center.x, labelPoint.y - center.y);
     if (distanceFromCenter > radius * 0.98) {
       return;
     }
 
-    ctx.fillText(name, avgPoint.x, avgPoint.y);
+    ctx.fillText(data.name, labelPoint.x, labelPoint.y);
   });
 
   ctx.restore();
@@ -1402,6 +1470,7 @@ function renderSky() {
 
   const visibleStars = new Map();
   const interactive = [];
+  let projectedConstellations = [];
   const magnitudeLimit = Number.isFinite(state.maxStarMagnitude)
     ? state.maxStarMagnitude
     : DEFAULT_MAX_MAGNITUDE;
@@ -1432,9 +1501,6 @@ function renderSky() {
     if (aliases.length === 0) {
       aliases.push(star.name || (star.hr ? `HR ${star.hr}` : 'Star'));
     }
-    aliases.forEach((alias) => {
-      visibleStars.set(alias, entry);
-    });
 
     const altitudeDeg = (coords.altitude * 180) / Math.PI;
     const displayName = aliases[0];
@@ -1452,14 +1518,34 @@ function renderSky() {
       y: renderedStar.y,
       radius: Math.max(renderedStar.size + 6, 8),
     });
+
+    aliases.forEach((alias) => {
+      if (!visibleStars.has(alias)) {
+        visibleStars.set(alias, entry);
+      }
+    });
   });
 
+  if (state.showConstellations || state.showConstellationLabels) {
+    projectedConstellations = CONSTELLATIONS.map((constellation) => ({
+      data: constellation,
+      projection: projectConstellation(
+        constellation,
+        ctxHelpers,
+        lat,
+        lon,
+        observationDate,
+        visibleStars
+      ),
+    }));
+  }
+
   if (state.showConstellations) {
-    drawConstellations(ctxHelpers, visibleStars);
+    drawConstellations(ctxHelpers, projectedConstellations);
   }
 
   if (state.showConstellationLabels) {
-    drawConstellationLabels(ctxHelpers, visibleStars);
+    drawConstellationLabels(ctxHelpers, projectedConstellations);
   }
 
   const planetInteractive = [];
