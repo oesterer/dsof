@@ -23,10 +23,14 @@ const messierInput = document.getElementById('show-messier');
 const raGridInput = document.getElementById('ra-grid-step');
 const decGridInput = document.getElementById('dec-grid-step');
 const zoomInput = document.getElementById('zoom-level');
+const maxMagnitudeInput = document.getElementById('max-magnitude');
 const tooltip = document.getElementById('sky-tooltip');
 
 const DEFAULT_RA_STEP = 4;
 const DEFAULT_DEC_STEP = 30;
+const DEFAULT_MAX_MAGNITUDE = 6;
+const MIN_MAGNITUDE_LIMIT = -2;
+const MAX_MAGNITUDE_LIMIT = 6.5;
 const ZOOM_MIN = 0.6;
 const ZOOM_MAX = 1.8;
 const ORIENTATION_SENSITIVITY = 0.005;
@@ -40,6 +44,11 @@ let isRotating = false;
 let activePointerId = null;
 let lastPointerX = 0;
 let lastPointerY = 0;
+
+const maxMagnitudeInputValue = parseFloat(maxMagnitudeInput?.value);
+const initialMaxMagnitude = Number.isFinite(maxMagnitudeInputValue)
+  ? maxMagnitudeInputValue
+  : DEFAULT_MAX_MAGNITUDE;
 
 const MESSIER_TYPE_LABELS = {
   galaxy: 'Galaxy',
@@ -148,6 +157,7 @@ const state = {
   showConstellationLabels: constellationLabelsInput?.checked ?? false,
   showStarTooltips: starTooltipsInput?.checked ?? true,
   showMessierObjects: messierInput?.checked ?? true,
+  maxStarMagnitude: initialMaxMagnitude,
   raStepHours: parseFloat(raGridInput?.value) || DEFAULT_RA_STEP,
   decStepDegrees: parseFloat(decGridInput?.value) || DEFAULT_DEC_STEP,
   zoomFactor: parseFloat(zoomInput?.value) || 1,
@@ -1362,9 +1372,16 @@ function renderSky() {
 
   const visibleStars = new Map();
   const interactive = [];
+  const magnitudeLimit = Number.isFinite(state.maxStarMagnitude)
+    ? state.maxStarMagnitude
+    : DEFAULT_MAX_MAGNITUDE;
 
   BRIGHT_STARS.forEach((star) => {
     if (!Number.isFinite(star.raHours) || !Number.isFinite(star.decDeg)) {
+      return;
+    }
+
+    if (Number.isFinite(star.mag) && star.mag > magnitudeLimit) {
       return;
     }
 
@@ -1583,6 +1600,29 @@ function handleZoomInput(event) {
   setZoom(rawValue);
 }
 
+function handleMaxMagnitudeInput(event) {
+  const rawValue = parseFloat(event.target.value);
+  if (!Number.isFinite(rawValue)) {
+    if (event.type === 'change' || event.type === 'blur') {
+      state.maxStarMagnitude = DEFAULT_MAX_MAGNITUDE;
+      event.target.value = DEFAULT_MAX_MAGNITUDE.toString();
+      reRenderIfPossible();
+    }
+    return;
+  }
+
+  const value = clamp(rawValue, MIN_MAGNITUDE_LIMIT, MAX_MAGNITUDE_LIMIT);
+  if (value !== rawValue) {
+    event.target.value = value.toString();
+  }
+
+  const previous = state.maxStarMagnitude;
+  state.maxStarMagnitude = value;
+  if (previous !== value) {
+    reRenderIfPossible();
+  }
+}
+
 renderButton.addEventListener('click', renderSky);
 locationButton.addEventListener('click', requestLocation);
 timeSelect.addEventListener('change', handleTimeSelectionChange);
@@ -1633,6 +1673,12 @@ if (messierInput) {
     state.showMessierObjects = event.target.checked;
     reRenderIfPossible();
   });
+}
+
+if (maxMagnitudeInput) {
+  maxMagnitudeInput.addEventListener('change', handleMaxMagnitudeInput);
+  maxMagnitudeInput.addEventListener('input', handleMaxMagnitudeInput);
+  maxMagnitudeInput.addEventListener('blur', handleMaxMagnitudeInput);
 }
 
 if (raGridInput) {
