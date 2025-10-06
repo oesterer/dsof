@@ -1,6 +1,7 @@
 import { BRIGHT_STARS } from '../data/brightStars.js';
 import { CONSTELLATIONS } from '../data/constellations.js';
 import { MESSIER_OBJECTS } from '../data/messier.js';
+import { MESSIER_IMAGES } from '../data/messierImages.js';
 import { PLANETS, EARTH_ORBIT } from '../data/planets.js';
 import { BAYER_GREEK, CONSTELLATION_GENITIVE } from '../data/starNames.js';
 
@@ -347,44 +348,12 @@ function escapeHtml(value) {
   });
 }
 
-function getMessierFov(objectType) {
-  switch (objectType) {
-    case 'galaxy':
-      return 1.6;
-    case 'nebula':
-      return 1.2;
-    case 'supernova_remnant':
-      return 1.4;
-    case 'open_cluster':
-      return 1.8;
-    case 'globular_cluster':
-      return 1.0;
-    case 'planetary_nebula':
-      return 0.6;
-    default:
-      return 1.2;
-  }
-}
-
 function buildMessierImageUrl(item) {
-  if (!item || !Number.isFinite(item.raHours) || !Number.isFinite(item.decDeg)) {
+  if (!item?.designation) {
     return null;
   }
-  const raDeg = normalizeDegrees(item.raHours * 15);
-  const decDeg = item.decDeg;
-  const fov = clamp(getMessierFov(item.objectType), 0.3, 3).toFixed(2);
-  const params = new URLSearchParams({
-    hips: 'CDS/P/DSS2/color',
-    ra: raDeg.toFixed(5),
-    dec: decDeg.toFixed(5),
-    fov,
-    width: '256',
-    height: '256',
-    format: 'png',
-    projection: 'Tan',
-    coordsys: 'equatorial',
-  });
-  return `https://alasky.u-strasbg.fr/hips-image-services/hips2fits?${params.toString()}`;
+  const key = item.designation.trim().toUpperCase();
+  return MESSIER_IMAGES[key] || null;
 }
 
 function formatStarTooltip(item) {
