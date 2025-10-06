@@ -1356,7 +1356,7 @@ function describeInteractiveItem(item) {
     if (imageUrl) {
       const alt = `${item.designation} preview`;
       htmlParts.push(
-        `<img src="${imageUrl}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" />`
+        `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
       );
     }
     return {

@@ -152,7 +152,7 @@ button:hover {
   transform: translate(-50%, -110%);
   transition: opacity 0.15s ease;
   white-space: normal;
-  max-width: 240px;
+  max-width: 280px;
   display: flex;
   flex-direction: column;
   gap: 6px;
