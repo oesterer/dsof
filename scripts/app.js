@@ -31,8 +31,8 @@ const DEFAULT_DEC_STEP = 30;
 const DEFAULT_MAX_MAGNITUDE = 6;
 const MIN_MAGNITUDE_LIMIT = -2;
 const MAX_MAGNITUDE_LIMIT = 6.5;
-const ZOOM_MIN = 0.6;
-const ZOOM_MAX = 1.8;
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 10;
 const ORIENTATION_SENSITIVITY = 0.005;
 const PITCH_SENSITIVITY = 0.0045;
 const PITCH_MIN = -Math.PI + 0.01;
@@ -533,18 +533,6 @@ function drawHorizon(ctxHelpers) {
     ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
     ctx.stroke();
   }
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(center.x, center.y, radius * 0.02, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.fill();
-
-  ctx.fillStyle = 'rgba(200, 215, 255, 0.6)';
-  ctx.font = '14px/1.4 system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('Zenith', center.x, center.y - radius * 0.1);
   ctx.restore();
 }
 
@@ -1276,9 +1264,9 @@ function drawEcliptic(ctxHelpers, latitude, longitude, observationDate) {
 
 function drawEquatorialGrid(ctxHelpers, latitude, longitude, observationDate, raStepHours, decStepDegrees) {
   ctx.save();
-  ctx.strokeStyle = 'rgba(120, 165, 255, 0.35)';
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = 'rgba(160, 210, 255, 0.65)';
+  ctx.lineWidth = 1.4;
+  ctx.globalAlpha = 1;
 
   const { center, radius } = ctxHelpers;
 
