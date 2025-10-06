@@ -142,17 +142,34 @@ button:hover {
 #sky-tooltip {
   position: absolute;
   pointer-events: none;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(10, 20, 42, 0.88);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(10, 20, 42, 0.9);
   border: 1px solid rgba(140, 190, 255, 0.45);
   color: var(--text);
   font-size: 0.85rem;
   opacity: 0;
   transform: translate(-50%, -110%);
   transition: opacity 0.15s ease;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 10px 24px rgba(8, 18, 44, 0.45);
   z-index: 10;
+}
+
+#sky-tooltip .tooltip-text {
+  line-height: 1.35;
+}
+
+#sky-tooltip img {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(140, 190, 255, 0.25);
+  box-shadow: 0 6px 14px rgba(8, 18, 44, 0.35);
 }
 
 #feedback {

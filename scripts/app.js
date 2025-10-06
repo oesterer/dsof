@@ -275,6 +275,11 @@ function buildSearchIndex() {
       if (star.properName && star.properName !== primary && isSearchableStarName(star.properName)) {
         addEntry(star.properName, 'star', baseResolver, star.properName);
       }
+      aliases.slice(1).forEach((alias) => {
+        if (alias && alias !== star.properName && alias !== primary && isSearchableStarName(alias)) {
+          addEntry(alias, 'star', baseResolver, alias);
+        }
+      });
     } else if (isSearchableStarName(star.name)) {
       addEntry(star.name, 'star', baseResolver, star.name);
     }
@@ -318,6 +323,68 @@ function findSearchEntry(query, entries) {
     return exact;
   }
   return entries.find((entry) => entry.name.toLowerCase().includes(normalized)) || null;
+}
+
+function escapeHtml(value) {
+  if (value == null) {
+    return '';
+  }
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case '\'':
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
+}
+
+function getMessierFov(objectType) {
+  switch (objectType) {
+    case 'galaxy':
+      return 1.6;
+    case 'nebula':
+      return 1.2;
+    case 'supernova_remnant':
+      return 1.4;
+    case 'open_cluster':
+      return 1.8;
+    case 'globular_cluster':
+      return 1.0;
+    case 'planetary_nebula':
+      return 0.6;
+    default:
+      return 1.2;
+  }
+}
+
+function buildMessierImageUrl(item) {
+  if (!item || !Number.isFinite(item.raHours) || !Number.isFinite(item.decDeg)) {
+    return null;
+  }
+  const raDeg = normalizeDegrees(item.raHours * 15);
+  const decDeg = item.decDeg;
+  const fov = clamp(getMessierFov(item.objectType), 0.3, 3).toFixed(2);
+  const params = new URLSearchParams({
+    hips: 'CDS/P/DSS2/color',
+    ra: raDeg.toFixed(5),
+    dec: decDeg.toFixed(5),
+    fov,
+    width: '256',
+    height: '256',
+    format: 'png',
+    projection: 'Tan',
+    coordsys: 'equatorial',
+  });
+  return `https://alasky.u-strasbg.fr/hips-image-services/hips2fits?${params.toString()}`;
 }
 
 function formatStarTooltip(item) {
@@ -1110,6 +1177,8 @@ function drawMessierObjects(ctxHelpers, latitude, longitude, observationDate) {
       designation: object.designation,
       name: object.name,
       objectType: object.type,
+      raHours: object.raHours,
+      decDeg: object.decDeg,
       x: point.x,
       y: point.y,
       radius: radius + 4,
@@ -1265,32 +1334,65 @@ function updateInteractiveItems(items) {
 }
 
 function describeInteractiveItem(item) {
+  if (!item) {
+    return null;
+  }
+
   if (item.kind === 'star') {
-    return formatStarTooltip(item);
+    const text = formatStarTooltip(item);
+    return {
+      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      ariaLabel: text,
+    };
   }
 
   if (item.kind === 'messier') {
     const label = MESSIER_TYPE_LABELS[item.objectType] || 'Deep-sky object';
-    if (item.name) {
-      return `${item.designation} • ${item.name} (${label})`;
+    const text = item.name
+      ? `${item.designation} • ${item.name} (${label})`
+      : `${item.designation} (${label})`;
+    const imageUrl = buildMessierImageUrl(item);
+    const htmlParts = [`<div class="tooltip-text">${escapeHtml(text)}</div>`];
+    if (imageUrl) {
+      const alt = `${item.designation} preview`;
+      htmlParts.push(
+        `<img src="${imageUrl}" alt="${escapeHtml(alt)}" loading="lazy" decoding="async" />`
+      );
     }
-    return `${item.designation} (${label})`;
+    return {
+      html: htmlParts.join(''),
+      ariaLabel: text,
+    };
   }
 
   if (item.kind === 'planet') {
-    return `${item.displayName} • alt ${item.altitudeDeg.toFixed(1)}° • ${item.distanceAU.toFixed(2)} AU`;
+    const text = `${item.displayName} • alt ${item.altitudeDeg.toFixed(1)}° • ${item.distanceAU.toFixed(2)} AU`;
+    return {
+      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      ariaLabel: text,
+    };
   }
 
   if (item.kind === 'sun') {
-    return `Sun • alt ${item.altitudeDeg.toFixed(1)}°`;
+    const text = `Sun • alt ${item.altitudeDeg.toFixed(1)}°`;
+    return {
+      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      ariaLabel: text,
+    };
   }
 
   if (item.kind === 'moon') {
     const distance = item.distanceKm ? `${(item.distanceKm / 1000).toFixed(0)}k km` : '';
-    return `${item.displayName} • ${item.phaseName} (${Math.round(item.illumination * 100)}% lit) • alt ${item.altitudeDeg.toFixed(1)}°${distance ? ` • ${distance}` : ''}`;
+    const text = `${item.displayName} • ${item.phaseName} (${Math.round(
+      item.illumination * 100
+    )}% lit) • alt ${item.altitudeDeg.toFixed(1)}°${distance ? ` • ${distance}` : ''}`;
+    return {
+      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      ariaLabel: text,
+    };
   }
 
-  return '';
+  return null;
 }
 
 function hideTooltip() {
@@ -1298,15 +1400,21 @@ function hideTooltip() {
     return;
   }
   tooltip.style.opacity = 0;
-  tooltip.textContent = '';
+  tooltip.innerHTML = '';
+  tooltip.removeAttribute('aria-label');
 }
 
-function showTooltip(text, clientX, clientY) {
-  if (!tooltip || !skyContainer) {
+function showTooltip(content, clientX, clientY) {
+  if (!tooltip || !skyContainer || !content) {
     return;
   }
 
-  tooltip.textContent = text;
+  tooltip.innerHTML = content.html || '';
+  if (content.ariaLabel) {
+    tooltip.setAttribute('aria-label', content.ariaLabel);
+  } else {
+    tooltip.removeAttribute('aria-label');
+  }
   const containerRect = skyContainer.getBoundingClientRect();
   const localX = clientX - containerRect.left;
   const localY = clientY - containerRect.top;
@@ -1342,9 +1450,9 @@ function handleCanvasMove(event) {
   });
 
   if (bestItem) {
-    const text = describeInteractiveItem(bestItem);
-    if (text) {
-      showTooltip(text, event.clientX, event.clientY);
+    const description = describeInteractiveItem(bestItem);
+    if (description?.html) {
+      showTooltip(description, event.clientX, event.clientY);
       return;
     }
   }
