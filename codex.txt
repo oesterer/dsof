@@ -1,0 +1,66 @@
+application that renders the stars of the night sky depending on the users location.
+
+add Overlay constellations
+
+add a grid for Ascension and Declination
+
+Add optional constellation labels or tooltips so users can identify each shape and star.
+  Add small RA/Dec labels around the edge so users can read values directly.
+  Introduce finer grid granularity or user-configurable spacing for advanced observers.
+  Add Messier objects and use different icons for each type of messier object.
+
+allow the user to change the direction of the view with the mouse
+  add an option to zoom in
+  add a yellow line visualizing the horizon
+  add a green line visualizing the ecliptic
+
+add moon and planets. use colorful icons for the planets. Show the phases of the moon.
+
+allow the user to change both view angles with mouse drags
+
+rename project and page from "Night Sky Viewer" to "Deep Sky Object Finder"
+
+add all stars from the yale bright star catalog
+
+add a magnitude filter option to only show brighter stars
+
+render 360 degrees of the sky, not just the visible hemisphere
+
+redo the horizon line algorithm, it does not render as a full circle
+
+The horizon circle does not rotate when the view is rotated
+
+add all Messier objects. See https://science.nasa.gov/mission/hubble/science/explore-the-night-sky/hubble-messier-catalog/
+
+
+add all 88 constellations
+
+constellations are not visible
+
+remove zenith label and icon
+  increase ability to zoom in, limit zoom out to 180 degrees or full circle
+  make grid lines a bit more visible
+
+change zoom range to 1-10
+
+add ability to find object (planet, messier, constellation, star)  by name and center view on object
+
+show image of real messier object in Messier tooltips
+
+use the images on this page for the messier tooltip images instead:   https://astropixels.com/messier/messiergallery.html
+
+  Download them and add them to a folder in the project
+
+
+show image of real planets in Plantets and Moon tooltips. use the images on this page for the planets and moon tooltip images:
+  https://science.nasa.gov/solar-system/planets/
+
+  Download them and add them to a folder in the project
+
+ use this image for the moon instead: https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/FullMoon2010.jpg/330px-
+  FullMoon2010.jpg
+
+add a toolptop image for the sun as well and store locally. use this image: https://spaceplace.nasa.gov/gallery-sun/en/solar-
+  flare.en.jpg
+
+change the "Max star magnitude" input to a slider (like zoom)
