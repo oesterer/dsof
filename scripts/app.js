@@ -17,6 +17,9 @@ const feedback = document.getElementById('feedback');
 const timeSelect = document.getElementById('time-select');
 const timeInputGroup = document.getElementById('time-input-group');
 const customTimeInput = document.getElementById('custom-time');
+const timeOffsetGroup = document.getElementById('time-offset-group');
+const timeOffsetInput = document.getElementById('time-offset');
+const timeOffsetDisplay = document.getElementById('time-offset-display');
 const constellationsInput = document.getElementById('show-constellations');
 const equatorialGridInput = document.getElementById('show-equatorial-grid');
 const constellationLabelsInput = document.getElementById('show-constellation-labels');
@@ -418,6 +421,7 @@ const state = {
   longitude: null,
   timeMode: 'now',
   customDate: null,
+  timeOffsetHours: parseFloat(timeOffsetInput?.value) || 0,
   showConstellations: constellationsInput?.checked ?? true,
   showEquatorialGrid: equatorialGridInput?.checked ?? true,
   showConstellationLabels: constellationLabelsInput?.checked ?? false,
@@ -433,6 +437,14 @@ const state = {
 
 const searchIndex = buildSearchIndex();
 populateSearchSuggestions(searchIndex);
+
+function updateTimeOffsetDisplay(value = state.timeOffsetHours) {
+  if (!timeOffsetDisplay) {
+    return;
+  }
+  const clamped = clamp(Number.isFinite(value) ? value : 0, 0, 24);
+  timeOffsetDisplay.textContent = `+${clamped.toFixed(1)} h`;
+}
 
 function reRenderIfPossible() {
   if (isRenderableLocation(state.latitude, state.longitude)) {
@@ -802,6 +814,37 @@ function drawHorizon(ctxHelpers) {
     ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
     ctx.stroke();
   }
+  ctx.restore();
+
+  const horizonDirections = [
+    { label: 'N', degrees: 0 },
+    { label: 'NE', degrees: 45 },
+    { label: 'E', degrees: 90 },
+    { label: 'SE', degrees: 135 },
+    { label: 'S', degrees: 180 },
+    { label: 'SW', degrees: 225 },
+    { label: 'W', degrees: 270 },
+    { label: 'NW', degrees: 315 },
+  ];
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(225, 238, 255, 0.85)';
+  ctx.font = '12px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  horizonDirections.forEach(({ label, degrees }) => {
+    const azimuth = degreesToRadians(degrees);
+    const point = projectHorizontalToCanvas(
+      ctxHelpers,
+      { azimuth, altitude: 0 },
+      { allowBehind: true }
+    );
+    if (!point) {
+      return;
+    }
+    ctx.fillText(label, point.x, point.y);
+  });
   ctx.restore();
 }
 
@@ -1756,7 +1799,12 @@ function centerOnEquatorial(raHours, decDeg, latitude, longitude, observationDat
 
 function prepareObservationDate() {
   if (state.timeMode === 'now') {
-    return new Date();
+    const offsetHours = Number.isFinite(state.timeOffsetHours) ? state.timeOffsetHours : 0;
+    const date = new Date();
+    if (offsetHours > 0) {
+      date.setTime(date.getTime() + offsetHours * 3600000);
+    }
+    return date;
   }
 
   if (state.customDate instanceof Date && !Number.isNaN(state.customDate.getTime())) {
@@ -2013,8 +2061,19 @@ function handleTimeSelectionChange(event) {
   state.timeMode = event.target.value;
   const isCustom = state.timeMode === 'custom';
   timeInputGroup.hidden = !isCustom;
+  if (timeOffsetGroup) {
+    timeOffsetGroup.hidden = isCustom;
+  }
+  if (timeOffsetInput) {
+    timeOffsetInput.disabled = isCustom;
+  }
   if (!isCustom) {
     state.customDate = null;
+  }
+  if (!isCustom && state.timeMode === 'now') {
+    reRenderIfPossible();
+  } else if (isCustom && state.customDate instanceof Date) {
+    reRenderIfPossible();
   }
 }
 
@@ -2033,6 +2092,27 @@ function handleCustomTimeInput(event) {
   }
 
   state.customDate = parsed;
+  if (state.timeMode === 'custom') {
+    reRenderIfPossible();
+  }
+}
+
+function handleTimeOffsetInput(event) {
+  const rawValue = parseFloat(event.target.value);
+  if (!Number.isFinite(rawValue)) {
+    return;
+  }
+
+  const value = clamp(rawValue, 0, 24);
+  if (value !== rawValue) {
+    event.target.value = value.toString();
+  }
+
+  state.timeOffsetHours = value;
+  updateTimeOffsetDisplay(value);
+  if (state.timeMode === 'now') {
+    reRenderIfPossible();
+  }
 }
 
 function handleRaStepInput(event) {
@@ -2134,6 +2214,11 @@ renderButton.addEventListener('click', renderSky);
 locationButton.addEventListener('click', requestLocation);
 timeSelect.addEventListener('change', handleTimeSelectionChange);
 customTimeInput.addEventListener('input', handleCustomTimeInput);
+if (timeOffsetInput) {
+  timeOffsetInput.addEventListener('input', handleTimeOffsetInput);
+  timeOffsetInput.addEventListener('change', handleTimeOffsetInput);
+  updateTimeOffsetDisplay();
+}
 
 if (constellationsInput) {
   constellationsInput.addEventListener('change', (event) => {

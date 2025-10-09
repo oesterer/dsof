@@ -64,3 +64,5 @@ add a toolptop image for the sun as well and store locally. use this image: http
   flare.en.jpg
 
 change the "Max star magnitude" input to a slider (like zoom)
+
+add a slider to allow the user to advance time up to 24 hours into the future
