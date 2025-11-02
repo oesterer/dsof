@@ -10,7 +10,7 @@ DROP TABLE IF EXISTS constellations;
 CREATE TABLE constellations (
   abbreviation VARCHAR NOT NULL,
   name VARCHAR NOT NULL,
-  rank SMALLINT,
+  rank_order SMALLINT,
   label_ra_hours DECIMAL(9,6),
   label_dec_deg DECIMAL(9,6),
   PRIMARY KEY (abbreviation)

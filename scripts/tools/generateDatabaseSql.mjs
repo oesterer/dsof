@@ -126,7 +126,7 @@ async function main() {
   const constellationRows = constellations.map((con) => ({
     abbreviation: con.abbreviation,
     name: con.name,
-    rank: con.rank ?? null,
+    rank_order: con.rank ?? null,
     label_ra_hours: con.label?.raHours ?? null,
     label_dec_deg: con.label?.decDeg ?? null,
   }));
@@ -215,7 +215,7 @@ async function main() {
   ].join('\n');
 
   const inserts = [
-    generateInserts('constellations', ['abbreviation', 'name', 'rank', 'label_ra_hours', 'label_dec_deg'], constellationRows),
+    generateInserts('constellations', ['abbreviation', 'name', 'rank_order', 'label_ra_hours', 'label_dec_deg'], constellationRows),
     generateInserts('constellation_line_points', ['constellation_abbreviation', 'line_index', 'point_index', 'ra_hours', 'dec_deg'], constellationLineRows),
     generateInserts('stars', ['hr_number', 'name', 'ra_hours', 'dec_deg', 'magnitude', 'flamsteed_designation', 'bayer_designation', 'constellation_abbreviation'], starRows),
     generateInserts('messier_objects', ['designation', 'name', 'object_type', 'ra_hours', 'dec_deg', 'constellation_abbreviation'], messierRows),

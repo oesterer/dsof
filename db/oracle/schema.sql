@@ -46,7 +46,7 @@ END;
 CREATE TABLE constellations (
   abbreviation VARCHAR2(3) PRIMARY KEY,
   name VARCHAR2(64) NOT NULL,
-  rank NUMBER(3),
+  rank_order NUMBER(3),
   label_ra_hours NUMBER(9,6),
   label_dec_deg NUMBER(9,6)
 );
