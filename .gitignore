@@ -5,6 +5,11 @@ node_modules/
 dist/
 coverage/
 
+# Gradle / Java build artifacts
+.gradle/
+build/
+services/spring-rest/build/
+
 # Logs and debug output
 *.log
 npm-debug.log*

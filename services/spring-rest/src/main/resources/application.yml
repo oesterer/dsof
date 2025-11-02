@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: dsof-spring-rest
+  jackson:
+    serialization:
+      indent_output: true
+
+server:
+  port: ${PORT:8080}
+
+dsof:
+  datasource:
+    host: ${MYSQL_DSOF_HOST:127.0.0.1}
+    port: ${MYSQL_DSOF_PORT:3306}
+    user: ${MYSQL_DSOF_USER:dsof}
+    database: ${MYSQL_DSOF_DATABASE:dsof}
+    password: ${MYSQL_DSOF_PASSWORD:}
+    password-file: ${MYSQL_DSOF_PASSWORD_FILE:${user.home}/.apikeys/mysql_dsof}

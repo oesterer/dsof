@@ -1,2 +1,6 @@
 cd services/graphql && npm install
 npm run dev
+
+cd services/spring-rest
+gradle wrapper
+./gradlew bootRun
