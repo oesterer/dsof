@@ -1,0 +1,2 @@
+cd services/graphql && npm install
+npm run dev
