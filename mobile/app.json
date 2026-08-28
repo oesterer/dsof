@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Deep Sky Object Finder",
+    "slug": "dsof-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dsof.skyfinder",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Your location places stars and planets correctly in the sky.",
+        "NSCameraUsageDescription": "The camera helps you aim at and identify objects in the sky.",
+        "NSMotionUsageDescription": "Device motion keeps the sky map aligned as you aim your phone."
+      },
+      "appleTeamId": "KFXZFZLNN2"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-status-bar",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Device motion keeps the sky map aligned as you aim your phone."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The camera helps you aim at and identify objects in the sky.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-location"
+    ]
+  }
+}
