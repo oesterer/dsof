@@ -30,7 +30,7 @@ export default function App() {
   const [view, setView] = useState({ heading: 0, elevation: 25 });
   const [zoom, setZoom] = useState(1);
   const [display, setDisplay] = useState<DisplayOptions>({ stars: true, constellations: true, constellationLabels: true, reticle: true });
-  const gesture = useRef({ heading: 0, elevation: 0, zoom: 1, distance: 0, moved: false });
+  const gesture = useRef({ heading: 0, elevation: 0, zoom: 1, distance: 0, fieldOfView: BASE_FOV, width: 390, height: 650, moved: false });
 
   useEffect(() => {
     const timer = setInterval(() => setObservationTime(new Date()), 60_000);
@@ -86,13 +86,26 @@ export default function App() {
     setSelected(nearest);
   }
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => !menuOpen,
+  const interaction = useRef({ menuOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt });
+  interaction.current = { menuOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt };
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => !interaction.current.menuOpen,
     onMoveShouldSetPanResponder: (_, state) => Math.abs(state.dx) + Math.abs(state.dy) > 3,
     onPanResponderGrant: (event) => {
       const touches = event.nativeEvent.touches;
       const distance = touches.length > 1 ? Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY) : 0;
-      gesture.current = { heading: viewHeading, elevation: viewElevation, zoom, distance, moved: false };
+      const current = interaction.current;
+      gesture.current = {
+        heading: current.viewHeading,
+        elevation: current.viewElevation,
+        zoom: current.zoom,
+        distance,
+        fieldOfView: current.fieldOfView,
+        width: current.viewport.width,
+        height: current.viewport.height,
+        moved: false,
+      };
     },
     onPanResponderMove: (event, state) => {
       const touches = event.nativeEvent.touches;
@@ -103,20 +116,21 @@ export default function App() {
         return;
       }
       if (Math.abs(state.dx) + Math.abs(state.dy) > 4) {
-        const verticalFov = fieldOfView * viewport.height / viewport.width;
+        const start = gesture.current;
+        const verticalFov = start.fieldOfView * start.height / start.width;
         setView({
-          heading: normalizeHeading(gesture.current.heading - state.dx * fieldOfView / viewport.width),
-          elevation: clamp(gesture.current.elevation - state.dy * verticalFov / viewport.height, -25, 90),
+          heading: normalizeHeading(start.heading - state.dx * start.fieldOfView / start.width),
+          elevation: clamp(start.elevation + state.dy * verticalFov / start.height, -25, 90),
         });
         setTracking(false);
         gesture.current.moved = true;
       }
     },
     onPanResponderRelease: (event) => {
-      if (!gesture.current.moved) identifyAt(event.nativeEvent.locationX, event.nativeEvent.locationY);
+      if (!gesture.current.moved) interaction.current.identifyAt(event.nativeEvent.locationX, event.nativeEvent.locationY);
     },
     onPanResponderTerminationRequest: () => false,
-  }), [menuOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, visibleStars, display.stars]);
+  })).current;
 
   async function toggleCamera() {
     if (!cameraMode && !cameraPermission?.granted) {
