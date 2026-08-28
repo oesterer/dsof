@@ -58,3 +58,15 @@ export function cardinalDirection(heading: number) {
   const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   return directions[Math.round(normalizeDegrees(heading) / 45) % directions.length];
 }
+
+export function eclipticToEquatorial(longitudeDeg: number) {
+  const longitude = longitudeDeg * DEG;
+  const obliquity = 23.4367 * DEG;
+  const x = Math.cos(longitude);
+  const y = Math.sin(longitude) * Math.cos(obliquity);
+  const z = Math.sin(longitude) * Math.sin(obliquity);
+  return {
+    raHours: normalizeDegrees(Math.atan2(y, x) / DEG) / 15,
+    decDeg: Math.asin(z) / DEG,
+  };
+}
