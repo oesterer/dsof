@@ -8,7 +8,9 @@ The first vertical slice includes live true-north heading and phone elevation, o
 
 - Pinch or use `+` / `−` to zoom from 1× to 6×.
 - Drag the sky to explore manually. This pauses automatic orientation tracking.
+- Drag below the gold horizon to inspect objects currently beneath the observer.
 - Tap **Resume live** to align the view with the phone again.
+- Use the clock control to preview the continuously advancing sky up to 72 hours in the future, then return to **Now**.
 - Tap stars, planets, the Sun, or Messier objects to identify them.
 - Open the top-right menu to toggle stars, planets and Sun, Messier deep-sky objects, constellation lines and names, the altitude/azimuth grid, horizon, ecliptic, aiming reticle, and camera view.
 

@@ -31,7 +31,9 @@ export default function App() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [viewport, setViewport] = useState({ width: 390, height: 650 });
   const [selected, setSelected] = useState<Selection | null>(null);
-  const [observationTime, setObservationTime] = useState(() => new Date());
+  const [clockTime, setClockTime] = useState(() => new Date());
+  const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
+  const [timeOpen, setTimeOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tracking, setTracking] = useState(true);
   const [view, setView] = useState({ heading: 0, elevation: 25 });
@@ -40,7 +42,7 @@ export default function App() {
   const gesture = useRef({ heading: 0, elevation: 0, zoom: 1, distance: 0, fieldOfView: BASE_FOV, width: 390, height: 650, moved: false, pinching: false });
 
   useEffect(() => {
-    const timer = setInterval(() => setObservationTime(new Date()), 60_000);
+    const timer = setInterval(() => setClockTime(new Date()), 60_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -51,10 +53,11 @@ export default function App() {
   const viewHeading = view.heading;
   const viewElevation = view.elevation;
   const fieldOfView = BASE_FOV / zoom;
+  const observationTime = useMemo(() => new Date(clockTime.getTime() + timeOffsetMinutes * 60_000), [clockTime, timeOffsetMinutes]);
 
   const horizontalStars = useMemo(() => {
     if (sensors.latitude === null || sensors.longitude === null) return [];
-    return CATALOG.map((star) => toHorizontal(star, sensors.latitude!, sensors.longitude!, observationTime)).filter((star) => star.altitude > -8);
+    return CATALOG.map((star) => toHorizontal(star, sensors.latitude!, sensors.longitude!, observationTime));
   }, [sensors.latitude, sensors.longitude, observationTime]);
 
   const visibleStars = useMemo(() => horizontalStars
@@ -77,11 +80,11 @@ export default function App() {
       });
       return segments;
     };
-    const altitudePaths = [15, 30, 45, 60, 75].map((altitude) =>
+    const altitudePaths = [-75, -60, -45, -30, -15, 15, 30, 45, 60, 75].map((altitude) =>
       Array.from({ length: 121 }, (_, index) => ({ altitude, azimuth: index * 3 })),
     );
     const azimuthPaths = Array.from({ length: 12 }, (_, index) =>
-      Array.from({ length: 36 }, (__, altitudeIndex) => ({ altitude: -15 + altitudeIndex * 3, azimuth: index * 30 })),
+      Array.from({ length: 61 }, (__, altitudeIndex) => ({ altitude: -90 + altitudeIndex * 3, azimuth: index * 30 })),
     );
     const horizonPath = [Array.from({ length: 181 }, (_, index) => ({ altitude: 0, azimuth: index * 2 }))];
     const eclipticPath = sensors.latitude === null || sensors.longitude === null ? [] : [
@@ -174,11 +177,11 @@ export default function App() {
     setSelected(nearest?.object || null);
   }
 
-  const interaction = useRef({ menuOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt });
-  interaction.current = { menuOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt };
+  const interaction = useRef({ menuOpen, timeOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt });
+  interaction.current = { menuOpen, timeOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt };
 
   const panResponder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => !interaction.current.menuOpen,
+    onStartShouldSetPanResponder: () => !interaction.current.menuOpen && !interaction.current.timeOpen,
     onMoveShouldSetPanResponder: (_, state) => Math.abs(state.dx) + Math.abs(state.dy) > 3,
     onPanResponderGrant: (event) => {
       const touches = event.nativeEvent.touches;
@@ -216,7 +219,7 @@ export default function App() {
         const verticalFov = start.fieldOfView * start.height / start.width;
         setView({
           heading: normalizeHeading(start.heading - state.dx * start.fieldOfView / start.width),
-          elevation: clamp(start.elevation + state.dy * verticalFov / start.height, -25, 90),
+          elevation: clamp(start.elevation + state.dy * verticalFov / start.height, -90, 90),
         });
         setTracking(false);
         gesture.current.moved = true;
@@ -243,6 +246,10 @@ export default function App() {
 
   const direction = cardinalDirection(viewHeading);
   const labelScale = clamp(1 + (zoom - 1) * 0.24, 1, 2);
+  const offsetHours = timeOffsetMinutes / 60;
+  const timeOffsetLabel = timeOffsetMinutes === 0 ? 'Now' : `+${Number.isInteger(offsetHours) ? offsetHours : offsetHours.toFixed(1)}h`;
+  const observationTimeLabel = observationTime.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const adjustTime = (minutes: number) => setTimeOffsetMinutes((current) => clamp(current + minutes, 0, 72 * 60));
   return (
     <View style={styles.app}>
       <StatusBar style="light" />
@@ -259,7 +266,7 @@ export default function App() {
               <Text style={styles.elevationLabel}>ELEVATION</Text>
               <Text style={styles.elevationValue}>{Math.round(viewElevation)}°</Text>
             </View>
-            <Pressable accessibilityLabel="Display options" style={styles.menuButton} onPress={() => setMenuOpen((open) => !open)}>
+            <Pressable accessibilityLabel="Display options" style={styles.menuButton} onPress={() => { setTimeOpen(false); setMenuOpen((open) => !open); }}>
               <Text style={styles.menuButtonText}>☰</Text>
             </Pressable>
           </View>
@@ -305,7 +312,7 @@ export default function App() {
               <Rect x={object.x - 4} y={object.y - 4} width={8} height={8} rotation={45} origin={`${object.x}, ${object.y}`} fill="none" stroke={selected?.kind === 'deepSky' && selected.id === object.designation ? '#86efdf' : '#d68cff'} strokeWidth={selected?.kind === 'deepSky' && selected.id === object.designation ? 2.2 : 1.3} />
               <SvgText x={object.x + 7} y={object.y + 4} fill={selected?.kind === 'deepSky' && selected.id === object.designation ? '#86efdf' : '#d9a4f2'} fontSize={9 * labelScale} fontWeight={selected?.kind === 'deepSky' && selected.id === object.designation ? '700' : '400'}>{object.designation}</SvgText>
             </Fragment>) : null}
-            {display.stars ? visibleStars.map((star) => <Circle key={star.hr} cx={star.x} cy={star.y} r={star.radius} fill={star.mag < 1.5 ? '#fff4d6' : '#e8f3ff'} opacity={Math.max(0.45, 1 - star.mag / 8)} />) : null}
+            {display.stars ? visibleStars.map((star) => <Circle key={star.hr} cx={star.x} cy={star.y} r={star.radius} fill={star.mag < 1.5 ? '#fff4d6' : '#e8f3ff'} opacity={Math.max(star.altitude < 0 ? 0.22 : 0.45, (1 - star.mag / 8) * (star.altitude < 0 ? 0.55 : 1))} />) : null}
             {display.planets ? visibleBodies.map((body) => <Fragment key={body.name}>
               <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : '#ffffff'} strokeOpacity={0.9} strokeWidth={selected?.kind === 'planet' && selected.id === body.name ? 2.5 : body.name === 'Sun' ? 1.5 : 0.7} />
               <SvgText x={body.x} y={body.y - 11 - (labelScale - 1) * 4} fill={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : body.name === 'Sun' ? '#ffe39a' : '#ffffff'} fontSize={11 * labelScale} fontWeight={selected?.kind === 'planet' && selected.id === body.name ? '800' : '600'} textAnchor="middle">{body.name}</SvgText>
@@ -315,6 +322,19 @@ export default function App() {
           </Svg>
           <View accessibilityLabel="Interactive sky map" style={styles.gestureSurface} {...panResponder.panHandlers} />
           {!sensors.ready ? <View style={styles.centerMessage}><Text style={styles.centerTitle}>{sensors.error ? 'Sensors unavailable' : 'Finding your sky…'}</Text><Text style={styles.centerCopy}>{sensors.error || 'Allow location and motion access when prompted.'}</Text></View> : null}
+          <Pressable style={[styles.timeButton, timeOffsetMinutes > 0 && styles.timeButtonActive]} onPress={() => { setMenuOpen(false); setTimeOpen((open) => !open); }}>
+            <Text style={styles.timeButtonLabel}>◷ {timeOffsetLabel}</Text>
+          </Pressable>
+          {timeOpen ? <View style={styles.timePanel}>
+            <View style={styles.timeHeadingRow}><View><Text style={styles.timeTitle}>Observation time</Text><Text style={styles.timeDate}>{observationTimeLabel}</Text></View><Pressable hitSlop={10} onPress={() => setTimeOpen(false)}><Text style={styles.timeClose}>×</Text></Pressable></View>
+            <View style={styles.timeSteps}>
+              <TimeStep label="−1h" onPress={() => adjustTime(-60)} disabled={timeOffsetMinutes === 0} />
+              <TimeStep label="+1h" onPress={() => adjustTime(60)} />
+              <TimeStep label="+6h" onPress={() => adjustTime(360)} />
+              <TimeStep label="+12h" onPress={() => adjustTime(720)} />
+            </View>
+            <Pressable style={styles.nowButton} onPress={() => setTimeOffsetMinutes(0)}><Text style={styles.nowButtonText}>Return to now</Text></Pressable>
+          </View> : null}
           <View style={styles.zoomControls}>
             <Pressable style={styles.zoomButton} onPress={() => setZoom((value) => clamp(value * 1.35, 1, 6))}><Text style={styles.zoomText}>+</Text></Pressable>
             <Text style={styles.zoomValue}>{zoom.toFixed(1)}×</Text>
@@ -340,6 +360,10 @@ function MenuSwitch({ label, value, onChange }: { label: string; value: boolean;
   return <View style={styles.menuRow}><Text style={styles.menuLabel}>{label}</Text><Switch value={value} onValueChange={onChange} trackColor={{ false: '#243c4d', true: '#2b766f' }} thumbColor={value ? '#86efdf' : '#91a4b2'} /></View>;
 }
 
+function TimeStep({ label, onPress, disabled = false }: { label: string; onPress(): void; disabled?: boolean }) {
+  return <Pressable disabled={disabled} style={[styles.timeStep, disabled && styles.timeStepDisabled]} onPress={onPress}><Text style={styles.timeStepText}>{label}</Text></Pressable>;
+}
+
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: '#030812' }, nightBackground: { backgroundColor: '#071526' }, safeArea: { flex: 1, paddingTop: NativeStatusBar.currentHeight || 0 },
   header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 5 }, headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -348,6 +372,8 @@ const styles = StyleSheet.create({
   menuButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, menuButtonText: { color: '#dcecf7', fontSize: 20 },
   menuBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.22)' }, menu: { position: 'absolute', zIndex: 20, top: 72, right: 16, width: 270, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }, menuHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }, menuTitle: { color: '#fff', fontWeight: '700', fontSize: 17 }, menuClose: { color: '#a9becd', fontSize: 28, lineHeight: 28, paddingLeft: 16 }, menuRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuLabel: { color: '#d6e5ee', fontSize: 14 }, menuDivider: { height: 1, backgroundColor: '#213a4b', marginVertical: 9 }, menuCamera: { paddingVertical: 9 }, menuCameraText: { color: '#86efdf', fontWeight: '600' },
   sky: { flex: 1, overflow: 'hidden' }, gestureSurface: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, centerMessage: { position: 'absolute', top: '40%', left: 30, right: 30, alignItems: 'center', padding: 20, borderRadius: 18, backgroundColor: 'rgba(3,8,18,0.82)' }, centerTitle: { color: '#fff', fontSize: 18, fontWeight: '600' }, centerCopy: { color: '#9bb1c3', textAlign: 'center', marginTop: 6, lineHeight: 19 },
+  timeButton: { position: 'absolute', left: 14, top: 14, minWidth: 72, height: 40, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, timeButtonActive: { borderColor: '#d9b35f', backgroundColor: 'rgba(65,48,17,0.9)' }, timeButtonLabel: { color: '#e8f2f8', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  timePanel: { position: 'absolute', zIndex: 8, top: 62, left: 14, width: 282, padding: 15, borderRadius: 17, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } }, timeHeadingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }, timeTitle: { color: '#fff', fontSize: 16, fontWeight: '700' }, timeDate: { color: '#d9b35f', fontSize: 13, fontWeight: '600', marginTop: 3 }, timeClose: { color: '#a9becd', fontSize: 27, lineHeight: 27, paddingLeft: 14 }, timeSteps: { flexDirection: 'row', gap: 6, marginTop: 14 }, timeStep: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#183247', borderWidth: 1, borderColor: '#31546b' }, timeStepDisabled: { opacity: 0.35 }, timeStepText: { color: '#eef8ff', fontSize: 12, fontWeight: '700' }, nowButton: { alignItems: 'center', paddingTop: 13, paddingBottom: 2 }, nowButtonText: { color: '#86efdf', fontSize: 13, fontWeight: '700' },
   zoomControls: { position: 'absolute', right: 14, top: 14, alignItems: 'center', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.78)' }, zoomButton: { width: 42, height: 40, alignItems: 'center', justifyContent: 'center' }, zoomText: { color: '#fff', fontSize: 25, fontWeight: '300' }, zoomValue: { color: '#86a0b4', fontSize: 10, fontVariant: ['tabular-nums'] },
   resumeButton: { position: 'absolute', top: 16, alignSelf: 'center', paddingHorizontal: 17, paddingVertical: 10, borderRadius: 22, backgroundColor: '#17665f', borderWidth: 1, borderColor: '#86efdf' }, resumeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   bottomPanel: { paddingHorizontal: 18, paddingTop: 7, paddingBottom: 12 }, hint: { color: '#9bb1c3', textAlign: 'center', fontSize: 13, marginBottom: 4 }, calibration: { color: '#efc87a', textAlign: 'center', fontSize: 11, marginTop: 5 }, objectCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(3,8,18,0.94)', borderWidth: 1, borderColor: '#31546b', borderRadius: 17, padding: 10, overflow: 'hidden' }, objectImage: { width: 88, height: 88, borderRadius: 11, marginRight: 12, backgroundColor: '#0d1b29' }, objectCopy: { flex: 1, paddingRight: 4 }, objectKind: { color: '#86efdf', fontSize: 9, fontWeight: '800', letterSpacing: 1.2, marginBottom: 3 }, objectName: { color: '#fff', fontSize: 17, fontWeight: '600' }, objectMeta: { color: '#86a0b4', fontSize: 12, marginTop: 4, textTransform: 'capitalize' }, close: { color: '#86a0b4', fontSize: 27, paddingHorizontal: 7, alignSelf: 'flex-start' },
