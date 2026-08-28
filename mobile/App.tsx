@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 import { BRIGHT_STARS } from './src/data/brightStars';
 import { CONSTELLATIONS } from './src/data/constellations';
 import { MESSIER_OBJECTS } from './src/data/messier';
+import { MESSIER_ASSETS, PLANET_ASSETS } from './src/data/imageAssets';
 import { CatalogStar, ProjectedPoint, ProjectedStar, cardinalDirection, eclipticToEquatorial, equatorialToHorizontal, projectHorizontalPoint, projectStar, toHorizontal } from './src/astro';
 import { computeSolarSystem, SolarBody } from './src/solarSystem';
 import { useSkySensors } from './src/useSkySensors';
@@ -16,7 +17,7 @@ type ProjectedConstellation = { name: string; segments: [ProjectedPoint, Project
 type MessierObject = { designation: string; name: string; type: string; raHours: number; decDeg: number };
 type ProjectedMessier = MessierObject & ProjectedPoint;
 type ProjectedBody = SolarBody & ProjectedPoint;
-type Selection = { kind: 'star' | 'planet' | 'deepSky'; name: string; details: string; x: number; y: number; altitude: number };
+type Selection = { kind: 'star' | 'planet' | 'deepSky'; id: string; name: string; details: string };
 
 const CATALOG = (BRIGHT_STARS as CatalogStar[]).filter((star) => star.mag <= 5.2);
 const SKY_SHAPES = CONSTELLATIONS as Constellation[];
@@ -114,6 +115,21 @@ export default function App() {
     }).filter((object): object is ProjectedMessier => object !== null);
   }, [display.deepSky, sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView]);
 
+  const selectedProjected = useMemo(() => {
+    if (!selected) return null;
+    if (selected.kind === 'planet') return visibleBodies.find((body) => body.name === selected.id) || null;
+    if (selected.kind === 'deepSky') return visibleDeepSky.find((object) => object.designation === selected.id) || null;
+    return visibleStars.find((star) => String(star.hr) === selected.id) || null;
+  }, [selected, visibleBodies, visibleDeepSky, visibleStars]);
+
+  useEffect(() => {
+    if (selected && !selectedProjected) setSelected(null);
+  }, [selected, selectedProjected]);
+
+  const selectedImage = selected?.kind === 'planet'
+    ? PLANET_ASSETS[selected.id]
+    : selected?.kind === 'deepSky' ? MESSIER_ASSETS[selected.id] : undefined;
+
   const visibleConstellations = useMemo<ProjectedConstellation[]>(() => {
     if (sensors.latitude === null || sensors.longitude === null || (!display.constellations && !display.constellationLabels)) return [];
     return SKY_SHAPES.map((constellation) => {
@@ -138,16 +154,20 @@ export default function App() {
   function identifyAt(x: number, y: number) {
     const candidates: Selection[] = [];
     if (display.planets) visibleBodies.forEach((body) => candidates.push({
-      kind: 'planet', name: body.name, details: `Solar system · alt ${Math.round(body.altitude)}°`, x: body.x, y: body.y, altitude: body.altitude,
+      kind: 'planet', id: body.name, name: body.name, details: `Solar system · alt ${Math.round(body.altitude)}°`,
     }));
     if (display.deepSky) visibleDeepSky.forEach((object) => candidates.push({
-      kind: 'deepSky', name: `${object.designation} · ${object.name}`, details: `${object.type.replaceAll('_', ' ')} · alt ${Math.round(object.altitude)}°`, x: object.x, y: object.y, altitude: object.altitude,
+      kind: 'deepSky', id: object.designation, name: `${object.designation} · ${object.name}`, details: `${object.type.replaceAll('_', ' ')} · alt ${Math.round(object.altitude)}°`,
     }));
     if (display.stars) visibleStars.forEach((star) => candidates.push({
-      kind: 'star', name: star.properName || star.name, details: `${star.constellation || 'Star'} · mag ${star.mag.toFixed(2)} · alt ${Math.round(star.altitude)}°`, x: star.x, y: star.y, altitude: star.altitude,
+      kind: 'star', id: String(star.hr), name: star.properName || star.name, details: `${star.constellation || 'Star'} · mag ${star.mag.toFixed(2)} · alt ${Math.round(star.altitude)}°`,
     }));
     const nearest = candidates.reduce<{ object: Selection; distance: number } | null>((best, object) => {
-      const distance = Math.hypot(object.x - x, object.y - y);
+      const projected = object.kind === 'planet'
+        ? visibleBodies.find((body) => body.name === object.id)
+        : object.kind === 'deepSky' ? visibleDeepSky.find((entry) => entry.designation === object.id) : visibleStars.find((star) => String(star.hr) === object.id);
+      if (!projected) return best;
+      const distance = Math.hypot(projected.x - x, projected.y - y);
       if (distance > (object.kind === 'planet' ? 34 : 28)) return best;
       return !best || distance < best.distance ? { object, distance } : best;
     }, null);
@@ -282,16 +302,16 @@ export default function App() {
               <SvgText key={constellation.name} x={constellation.label.x} y={constellation.label.y} fill="#70a8c8" fontSize={11 * labelScale} textAnchor="middle" opacity={0.85}>{constellation.name}</SvgText> : null,
             ) : null}
             {display.deepSky ? visibleDeepSky.map((object) => <Fragment key={object.designation}>
-              <Rect x={object.x - 4} y={object.y - 4} width={8} height={8} rotation={45} origin={`${object.x}, ${object.y}`} fill="none" stroke="#d68cff" strokeWidth={1.3} />
-              <SvgText x={object.x + 7} y={object.y + 4} fill="#d9a4f2" fontSize={9 * labelScale}>{object.designation}</SvgText>
+              <Rect x={object.x - 4} y={object.y - 4} width={8} height={8} rotation={45} origin={`${object.x}, ${object.y}`} fill="none" stroke={selected?.kind === 'deepSky' && selected.id === object.designation ? '#86efdf' : '#d68cff'} strokeWidth={selected?.kind === 'deepSky' && selected.id === object.designation ? 2.2 : 1.3} />
+              <SvgText x={object.x + 7} y={object.y + 4} fill={selected?.kind === 'deepSky' && selected.id === object.designation ? '#86efdf' : '#d9a4f2'} fontSize={9 * labelScale} fontWeight={selected?.kind === 'deepSky' && selected.id === object.designation ? '700' : '400'}>{object.designation}</SvgText>
             </Fragment>) : null}
             {display.stars ? visibleStars.map((star) => <Circle key={star.hr} cx={star.x} cy={star.y} r={star.radius} fill={star.mag < 1.5 ? '#fff4d6' : '#e8f3ff'} opacity={Math.max(0.45, 1 - star.mag / 8)} />) : null}
             {display.planets ? visibleBodies.map((body) => <Fragment key={body.name}>
-              <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke="#ffffff" strokeOpacity={0.8} strokeWidth={body.name === 'Sun' ? 1.5 : 0.7} />
-              <SvgText x={body.x} y={body.y - 11 - (labelScale - 1) * 4} fill={body.name === 'Sun' ? '#ffe39a' : '#ffffff'} fontSize={11 * labelScale} fontWeight="600" textAnchor="middle">{body.name}</SvgText>
+              <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : '#ffffff'} strokeOpacity={0.9} strokeWidth={selected?.kind === 'planet' && selected.id === body.name ? 2.5 : body.name === 'Sun' ? 1.5 : 0.7} />
+              <SvgText x={body.x} y={body.y - 11 - (labelScale - 1) * 4} fill={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : body.name === 'Sun' ? '#ffe39a' : '#ffffff'} fontSize={11 * labelScale} fontWeight={selected?.kind === 'planet' && selected.id === body.name ? '800' : '600'} textAnchor="middle">{body.name}</SvgText>
             </Fragment>) : null}
             {display.reticle ? <><Line x1="50%" y1="47%" x2="50%" y2="53%" stroke="#86efdf" strokeOpacity={0.65} /><Line x1="46%" y1="50%" x2="54%" y2="50%" stroke="#86efdf" strokeOpacity={0.65} /></> : null}
-            {selected ? <><Circle cx={selected.x} cy={selected.y} r={14} fill="none" stroke="#86efdf" strokeWidth={1.5} /><SvgText x={selected.x} y={selected.y - 20} fill="#ffffff" fontSize={13 * labelScale} textAnchor="middle">{selected.name}</SvgText></> : null}
+            {selectedProjected ? <Circle cx={selectedProjected.x} cy={selectedProjected.y} r={15} fill="none" stroke="#86efdf" strokeWidth={1.5} /> : null}
           </Svg>
           <View accessibilityLabel="Interactive sky map" style={styles.gestureSurface} {...panResponder.panHandlers} />
           {!sensors.ready ? <View style={styles.centerMessage}><Text style={styles.centerTitle}>{sensors.error ? 'Sensors unavailable' : 'Finding your sky…'}</Text><Text style={styles.centerCopy}>{sensors.error || 'Allow location and motion access when prompted.'}</Text></View> : null}
@@ -304,7 +324,11 @@ export default function App() {
         </View>
 
         <View style={styles.bottomPanel}>
-          {selected ? <View style={styles.objectCard}><View style={styles.objectCopy}><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text></View><Pressable onPress={() => setSelected(null)}><Text style={styles.close}>×</Text></Pressable></View> : <Text style={styles.hint}>{tracking ? 'Aim your phone. Pinch to zoom or drag to explore.' : 'Manual view active. Tap Resume live to follow your phone.'}</Text>}
+          {selected ? <View style={styles.objectCard}>
+            {selectedImage ? <Image source={selectedImage} style={styles.objectImage} resizeMode="cover" /> : null}
+            <View style={styles.objectCopy}><Text style={styles.objectKind}>{selected.kind === 'deepSky' ? 'DEEP-SKY OBJECT' : selected.kind === 'planet' ? 'SOLAR SYSTEM' : 'STAR'}</Text><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text></View>
+            <Pressable onPress={() => setSelected(null)}><Text style={styles.close}>×</Text></Pressable>
+          </View> : <Text style={styles.hint}>{tracking ? 'Aim your phone. Pinch to zoom or drag to explore.' : 'Manual view active. Tap Resume live to follow your phone.'}</Text>}
           {sensors.headingAccuracy < 2 && sensors.ready && tracking ? <Text style={styles.calibration}>Move the phone in a figure eight to calibrate the compass.</Text> : null}
         </View>
       </SafeAreaView>
@@ -326,5 +350,5 @@ const styles = StyleSheet.create({
   sky: { flex: 1, overflow: 'hidden' }, gestureSurface: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, centerMessage: { position: 'absolute', top: '40%', left: 30, right: 30, alignItems: 'center', padding: 20, borderRadius: 18, backgroundColor: 'rgba(3,8,18,0.82)' }, centerTitle: { color: '#fff', fontSize: 18, fontWeight: '600' }, centerCopy: { color: '#9bb1c3', textAlign: 'center', marginTop: 6, lineHeight: 19 },
   zoomControls: { position: 'absolute', right: 14, top: 14, alignItems: 'center', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.78)' }, zoomButton: { width: 42, height: 40, alignItems: 'center', justifyContent: 'center' }, zoomText: { color: '#fff', fontSize: 25, fontWeight: '300' }, zoomValue: { color: '#86a0b4', fontSize: 10, fontVariant: ['tabular-nums'] },
   resumeButton: { position: 'absolute', top: 16, alignSelf: 'center', paddingHorizontal: 17, paddingVertical: 10, borderRadius: 22, backgroundColor: '#17665f', borderWidth: 1, borderColor: '#86efdf' }, resumeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  bottomPanel: { paddingHorizontal: 18, paddingTop: 7, paddingBottom: 12 }, hint: { color: '#9bb1c3', textAlign: 'center', fontSize: 13, marginBottom: 4 }, calibration: { color: '#efc87a', textAlign: 'center', fontSize: 11, marginTop: 5 }, objectCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(3,8,18,0.88)', borderWidth: 1, borderColor: '#29465c', borderRadius: 15, padding: 14 }, objectCopy: { flex: 1, paddingRight: 8 }, objectName: { color: '#fff', fontSize: 17, fontWeight: '600' }, objectMeta: { color: '#86a0b4', fontSize: 12, marginTop: 3, textTransform: 'capitalize' }, close: { color: '#86a0b4', fontSize: 27, paddingHorizontal: 8 },
+  bottomPanel: { paddingHorizontal: 18, paddingTop: 7, paddingBottom: 12 }, hint: { color: '#9bb1c3', textAlign: 'center', fontSize: 13, marginBottom: 4 }, calibration: { color: '#efc87a', textAlign: 'center', fontSize: 11, marginTop: 5 }, objectCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(3,8,18,0.94)', borderWidth: 1, borderColor: '#31546b', borderRadius: 17, padding: 10, overflow: 'hidden' }, objectImage: { width: 88, height: 88, borderRadius: 11, marginRight: 12, backgroundColor: '#0d1b29' }, objectCopy: { flex: 1, paddingRight: 4 }, objectKind: { color: '#86efdf', fontSize: 9, fontWeight: '800', letterSpacing: 1.2, marginBottom: 3 }, objectName: { color: '#fff', fontSize: 17, fontWeight: '600' }, objectMeta: { color: '#86a0b4', fontSize: 12, marginTop: 4, textTransform: 'capitalize' }, close: { color: '#86a0b4', fontSize: 27, paddingHorizontal: 7, alignSelf: 'flex-start' },
 });
