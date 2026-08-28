@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
-import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
 import { BRIGHT_STARS } from './src/data/brightStars';
 import { CONSTELLATIONS } from './src/data/constellations';
+import { MESSIER_OBJECTS } from './src/data/messier';
 import { CatalogStar, ProjectedPoint, ProjectedStar, cardinalDirection, equatorialToHorizontal, projectHorizontalPoint, projectStar, toHorizontal } from './src/astro';
+import { computeSolarSystem, SolarBody } from './src/solarSystem';
 import { useSkySensors } from './src/useSkySensors';
 
 type Constellation = { name: string; abbreviation: string; lines: { raHours: number; decDeg: number }[][]; label?: { raHours: number; decDeg: number } };
-type DisplayOptions = { stars: boolean; constellations: boolean; constellationLabels: boolean; reticle: boolean };
+type DisplayOptions = { stars: boolean; constellations: boolean; constellationLabels: boolean; grid: boolean; horizon: boolean; planets: boolean; deepSky: boolean; reticle: boolean };
 type ProjectedConstellation = { name: string; segments: [ProjectedPoint, ProjectedPoint][]; label: ProjectedPoint | null };
+type MessierObject = { designation: string; name: string; type: string; raHours: number; decDeg: number };
+type ProjectedMessier = MessierObject & ProjectedPoint;
+type ProjectedBody = SolarBody & ProjectedPoint;
 
 const CATALOG = (BRIGHT_STARS as CatalogStar[]).filter((star) => star.mag <= 5.2);
 const SKY_SHAPES = CONSTELLATIONS as Constellation[];
@@ -29,7 +34,7 @@ export default function App() {
   const [tracking, setTracking] = useState(true);
   const [view, setView] = useState({ heading: 0, elevation: 25 });
   const [zoom, setZoom] = useState(1);
-  const [display, setDisplay] = useState<DisplayOptions>({ stars: true, constellations: true, constellationLabels: true, reticle: true });
+  const [display, setDisplay] = useState<DisplayOptions>({ stars: true, constellations: true, constellationLabels: true, grid: true, horizon: true, planets: true, deepSky: true, reticle: true });
   const gesture = useRef({ heading: 0, elevation: 0, zoom: 1, distance: 0, fieldOfView: BASE_FOV, width: 390, height: 650, moved: false });
 
   useEffect(() => {
@@ -55,6 +60,49 @@ export default function App() {
     .filter((star): star is ProjectedStar => star !== null),
   [horizontalStars, viewHeading, viewElevation, viewport, fieldOfView]);
 
+  const { gridSegments, horizonSegments } = useMemo(() => {
+    const project = (altitude: number, azimuth: number) => projectHorizontalPoint(
+      { altitude, azimuth }, viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView, false,
+    );
+    const makeSegments = (paths: { altitude: number; azimuth: number }[][]) => {
+      const segments: [ProjectedPoint, ProjectedPoint][] = [];
+      paths.forEach((path) => {
+        for (let index = 1; index < path.length; index += 1) {
+          const first = project(path[index - 1].altitude, path[index - 1].azimuth);
+          const second = project(path[index].altitude, path[index].azimuth);
+          if (first && second) segments.push([first, second]);
+        }
+      });
+      return segments;
+    };
+    const altitudePaths = [15, 30, 45, 60, 75].map((altitude) =>
+      Array.from({ length: 121 }, (_, index) => ({ altitude, azimuth: index * 3 })),
+    );
+    const azimuthPaths = Array.from({ length: 12 }, (_, index) =>
+      Array.from({ length: 36 }, (__, altitudeIndex) => ({ altitude: -15 + altitudeIndex * 3, azimuth: index * 30 })),
+    );
+    const horizonPath = [Array.from({ length: 181 }, (_, index) => ({ altitude: 0, azimuth: index * 2 }))];
+    return { gridSegments: makeSegments([...altitudePaths, ...azimuthPaths]), horizonSegments: makeSegments(horizonPath) };
+  }, [viewHeading, viewElevation, viewport, fieldOfView]);
+
+  const visibleBodies = useMemo<ProjectedBody[]>(() => {
+    if (!display.planets || sensors.latitude === null || sensors.longitude === null) return [];
+    return computeSolarSystem(observationTime).map((body) => {
+      const horizontal = equatorialToHorizontal(body.raHours, body.decDeg, sensors.latitude!, sensors.longitude!, observationTime);
+      const projected = projectHorizontalPoint(horizontal, viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView);
+      return projected ? { ...body, ...projected } : null;
+    }).filter((body): body is ProjectedBody => body !== null);
+  }, [display.planets, sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView]);
+
+  const visibleDeepSky = useMemo<ProjectedMessier[]>(() => {
+    if (!display.deepSky || sensors.latitude === null || sensors.longitude === null) return [];
+    return (MESSIER_OBJECTS as MessierObject[]).map((object) => {
+      const horizontal = equatorialToHorizontal(object.raHours, object.decDeg, sensors.latitude!, sensors.longitude!, observationTime);
+      const projected = projectHorizontalPoint(horizontal, viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView);
+      return projected ? { ...object, ...projected } : null;
+    }).filter((object): object is ProjectedMessier => object !== null);
+  }, [display.deepSky, sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView]);
+
   const visibleConstellations = useMemo<ProjectedConstellation[]>(() => {
     if (sensors.latitude === null || sensors.longitude === null || (!display.constellations && !display.constellationLabels)) return [];
     return SKY_SHAPES.map((constellation) => {
@@ -63,7 +111,7 @@ export default function App() {
         for (let index = 1; index < path.length; index += 1) {
           const points = [path[index - 1], path[index]].map((point) => projectHorizontalPoint(
             equatorialToHorizontal(point.raHours, point.decDeg, sensors.latitude!, sensors.longitude!, observationTime),
-            viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView,
+            viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView, false,
           ));
           if (points[0] && points[1]) segments.push(points as [ProjectedPoint, ProjectedPoint]);
         }
@@ -175,8 +223,12 @@ export default function App() {
             <Pressable accessibilityLabel="Close menu" hitSlop={10} onPress={() => setMenuOpen(false)}><Text style={styles.menuClose}>×</Text></Pressable>
           </View>
           <MenuSwitch label="Stars" value={display.stars} onChange={(value) => changeDisplay('stars', value)} />
+          <MenuSwitch label="Planets & Sun" value={display.planets} onChange={(value) => changeDisplay('planets', value)} />
+          <MenuSwitch label="Deep-sky objects" value={display.deepSky} onChange={(value) => changeDisplay('deepSky', value)} />
           <MenuSwitch label="Constellation lines" value={display.constellations} onChange={(value) => changeDisplay('constellations', value)} />
           <MenuSwitch label="Constellation names" value={display.constellationLabels} onChange={(value) => changeDisplay('constellationLabels', value)} />
+          <MenuSwitch label="Alt / az grid" value={display.grid} onChange={(value) => changeDisplay('grid', value)} />
+          <MenuSwitch label="Horizon" value={display.horizon} onChange={(value) => changeDisplay('horizon', value)} />
           <MenuSwitch label="Aiming reticle" value={display.reticle} onChange={(value) => changeDisplay('reticle', value)} />
           <View style={styles.menuDivider} />
           <Pressable style={styles.menuCamera} onPress={toggleCamera}><Text style={styles.menuCameraText}>{cameraMode ? 'Disable camera view' : 'Enable camera view'}</Text></Pressable>
@@ -184,13 +236,27 @@ export default function App() {
 
         <View style={styles.sky} onLayout={(event: LayoutChangeEvent) => setViewport(event.nativeEvent.layout)}>
           <Svg width="100%" height="100%">
+            {display.grid ? gridSegments.map((segment, index) =>
+              <Line key={`grid-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#315369" strokeWidth={0.7} strokeOpacity={cameraMode ? 0.58 : 0.38} />,
+            ) : null}
+            {display.horizon ? horizonSegments.map((segment, index) =>
+              <Line key={`horizon-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#d9b35f" strokeWidth={1.6} strokeOpacity={0.82} />,
+            ) : null}
             {display.constellations ? visibleConstellations.flatMap((constellation) => constellation.segments.map((segment, index) =>
               <Line key={`${constellation.name}-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#5288a7" strokeWidth={1} strokeOpacity={cameraMode ? 0.85 : 0.55} />,
             )) : null}
             {display.constellationLabels ? visibleConstellations.map((constellation) => constellation.label ?
               <SvgText key={constellation.name} x={constellation.label.x} y={constellation.label.y} fill="#70a8c8" fontSize={11} textAnchor="middle" opacity={0.85}>{constellation.name}</SvgText> : null,
             ) : null}
+            {display.deepSky ? visibleDeepSky.map((object) => <Fragment key={object.designation}>
+              <Rect x={object.x - 4} y={object.y - 4} width={8} height={8} rotation={45} origin={`${object.x}, ${object.y}`} fill="none" stroke="#d68cff" strokeWidth={1.3} />
+              <SvgText x={object.x + 7} y={object.y + 4} fill="#d9a4f2" fontSize={9}>{object.designation}</SvgText>
+            </Fragment>) : null}
             {display.stars ? visibleStars.map((star) => <Circle key={star.hr} cx={star.x} cy={star.y} r={star.radius} fill={star.mag < 1.5 ? '#fff4d6' : '#e8f3ff'} opacity={Math.max(0.45, 1 - star.mag / 8)} />) : null}
+            {display.planets ? visibleBodies.map((body) => <Fragment key={body.name}>
+              <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke="#ffffff" strokeOpacity={0.8} strokeWidth={body.name === 'Sun' ? 1.5 : 0.7} />
+              <SvgText x={body.x} y={body.y - 11} fill={body.name === 'Sun' ? '#ffe39a' : '#ffffff'} fontSize={11} fontWeight="600" textAnchor="middle">{body.name}</SvgText>
+            </Fragment>) : null}
             {display.reticle ? <><Line x1="50%" y1="47%" x2="50%" y2="53%" stroke="#86efdf" strokeOpacity={0.65} /><Line x1="46%" y1="50%" x2="54%" y2="50%" stroke="#86efdf" strokeOpacity={0.65} /></> : null}
             {selected ? <><Circle cx={selected.x} cy={selected.y} r={13} fill="none" stroke="#86efdf" strokeWidth={1.5} /><SvgText x={selected.x} y={selected.y - 19} fill="#ffffff" fontSize={13} textAnchor="middle">{selected.properName || selected.name}</SvgText></> : null}
           </Svg>

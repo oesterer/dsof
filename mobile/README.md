@@ -9,7 +9,7 @@ The first vertical slice includes live true-north heading and phone elevation, o
 - Pinch or use `+` / `−` to zoom from 1× to 6×.
 - Drag the sky to explore manually. This pauses automatic orientation tracking.
 - Tap **Resume live** to align the view with the phone again.
-- Open the top-right menu to toggle stars, constellation lines, constellation names, the aiming reticle, and camera view.
+- Open the top-right menu to toggle stars, planets and Sun, Messier deep-sky objects, constellation lines and names, the altitude/azimuth grid, horizon, aiming reticle, and camera view.
 
 ## Run on an iPhone
 

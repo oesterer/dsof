@@ -35,7 +35,7 @@ export function projectStar(star: HorizontalStar, heading: number, elevation: nu
   return { ...star, x: point.x, y: point.y, radius: Math.max(1.1, Math.min(4.8, 5.2 - star.mag * 0.72)) };
 }
 
-export function projectHorizontalPoint(point: HorizontalPoint, heading: number, elevation: number, width: number, height: number, horizontalFov = 62): ProjectedPoint | null {
+export function projectHorizontalPoint(point: HorizontalPoint, heading: number, elevation: number, width: number, height: number, horizontalFov = 62, cullToViewport = true): ProjectedPoint | null {
   const az = point.azimuth * DEG;
   const alt = point.altitude * DEG;
   const h = heading * DEG;
@@ -50,7 +50,7 @@ export function projectHorizontalPoint(point: HorizontalPoint, heading: number, 
   const focal = width / (2 * Math.tan((horizontalFov * DEG) / 2));
   const x = width / 2 + (dot(target, right) / depth) * focal;
   const y = height / 2 - (dot(target, up) / depth) * focal;
-  if (x < -12 || x > width + 12 || y < -12 || y > height + 12) return null;
+  if (cullToViewport && (x < -12 || x > width + 12 || y < -12 || y > height + 12)) return null;
   return { ...point, x, y };
 }
 
