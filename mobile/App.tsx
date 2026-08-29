@@ -253,7 +253,7 @@ export default function App() {
         : `Solar system · alt ${Math.round(body.altitude)}°`,
     }));
     if (display.deepSky) visibleDeepSky.forEach((object) => candidates.push({
-      kind: 'deepSky', id: object.designation, name: `${object.designation} · ${object.name}`, details: `${object.type.replaceAll('_', ' ')} · alt ${Math.round(object.altitude)}°`,
+      kind: 'deepSky', id: object.designation, name: `${object.designation} · ${object.name}`, details: `${object.type.replace(/_/g, ' ')} · alt ${Math.round(object.altitude)}°`,
     }));
     if (display.stars) visibleStars.forEach((star) => candidates.push({
       kind: 'star', id: String(star.hr), name: star.properName || star.name, details: `${star.constellation || 'Star'} · mag ${star.mag.toFixed(2)} · alt ${Math.round(star.altitude)}°`,
