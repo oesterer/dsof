@@ -34,6 +34,9 @@ const searchInput = document.getElementById('object-search');
 const searchButton = document.getElementById('object-search-button');
 const searchOptions = document.getElementById('object-search-options');
 const tooltip = document.getElementById('sky-tooltip');
+const controls = document.querySelector('.controls');
+const controlsToggle = document.getElementById('controls-toggle');
+const pageMain = document.querySelector('main');
 
 const DEFAULT_RA_STEP = 4;
 const DEFAULT_DEC_STEP = 30;
@@ -678,9 +681,16 @@ function equatorialToHorizontal(star, latitude, longitude, date) {
 
 function prepareCanvas() {
   const container = skyContainer || document.querySelector('.sky-container');
-  const availableHeight = window.innerHeight - (container?.offsetTop ?? 0) - 80;
-  const size = Math.min(container?.clientWidth ?? canvas.width, availableHeight);
-  const minSize = 320;
+  const containerStyles = container ? window.getComputedStyle(container) : null;
+  const horizontalPadding = containerStyles
+    ? parseFloat(containerStyles.paddingLeft) + parseFloat(containerStyles.paddingRight)
+    : 0;
+  const legend = container?.querySelector('.legend');
+  const legendHeight = legend?.getBoundingClientRect().height ?? 0;
+  const availableWidth = (container?.clientWidth ?? canvas.width) - horizontalPadding;
+  const availableHeight = window.innerHeight - (container?.getBoundingClientRect().top ?? 0) - legendHeight - 24;
+  const size = Math.min(availableWidth, availableHeight);
+  const minSize = 240;
   const finalSize = Math.max(minSize, size || minSize);
   const dpr = window.devicePixelRatio || 1;
 
@@ -2386,6 +2396,41 @@ if (decGridInput) {
 if (zoomInput) {
   zoomInput.addEventListener('input', handleZoomInput);
   zoomInput.addEventListener('change', handleZoomInput);
+}
+
+function setControlsCollapsed(collapsed) {
+  controls?.classList.toggle('collapsed', collapsed);
+  pageMain?.classList.toggle('controls-collapsed', collapsed);
+  if (controlsToggle) {
+    controlsToggle.setAttribute('aria-expanded', String(!collapsed));
+    controlsToggle.setAttribute('aria-label', collapsed ? 'Expand sky controls' : 'Collapse sky controls');
+    const icon = controlsToggle.querySelector('.controls-toggle-icon');
+    if (icon) icon.textContent = collapsed ? '›' : '‹';
+  }
+  try {
+    localStorage.setItem('dsof-controls-collapsed', String(collapsed));
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsing contexts.
+  }
+  requestAnimationFrame(() => {
+    if (isRenderableLocation(state.latitude, state.longitude)) renderSky();
+  });
+}
+
+if (controlsToggle) {
+  controlsToggle.addEventListener('click', () => setControlsCollapsed(!controls?.classList.contains('collapsed')));
+}
+
+pageMain?.addEventListener('transitionend', (event) => {
+  if (event.propertyName === 'grid-template-columns' && isRenderableLocation(state.latitude, state.longitude)) {
+    renderSky();
+  }
+});
+
+try {
+  setControlsCollapsed(localStorage.getItem('dsof-controls-collapsed') === 'true');
+} catch {
+  setControlsCollapsed(false);
 }
 
 canvas.addEventListener('mousemove', handleCanvasMove);

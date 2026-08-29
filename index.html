@@ -51,7 +51,7 @@
       </div>
       <div class="control-group checkbox">
         <label>
-          <input type="checkbox" id="show-constellation-labels" />
+          <input type="checkbox" id="show-constellation-labels" checked />
           Show constellation labels
         </label>
       </div>
@@ -109,6 +109,9 @@
       <button id="render">Render Sky</button>
       <p id="feedback" role="status"></p>
     </section>
+    <button type="button" id="controls-toggle" class="controls-toggle" aria-expanded="true" aria-label="Collapse sky controls">
+      <span class="controls-toggle-icon" aria-hidden="true">‹</span>
+    </button>
     <section class="sky-container">
       <canvas id="sky-canvas" width="900" height="900" aria-label="Night sky map"></canvas>
       <div id="sky-tooltip" role="status" aria-live="polite"></div>
