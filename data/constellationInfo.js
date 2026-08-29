@@ -19,7 +19,7 @@ const CONSTELLATION_STORIES = {
 export function getConstellationInfo(name) {
   const facts = CONSTELLATION_FACTS[name];
   if (!facts) {
-    return CONSTELLATION_STORIES[name] || `${name} is one of the 88 constellations formally recognized by the International Astronomical Union.`;
+    return CONSTELLATION_STORIES[name] || `No description is available for ${name}.`;
   }
   const symbol = facts.symbolism ? `Traditionally it represents ${facts.symbolism}.` : '';
   const hemisphere = facts.hemisphere === 'Both Hemispheres'
@@ -31,5 +31,5 @@ export function getConstellationInfo(name) {
   if (CONSTELLATION_STORIES[name]) {
     return `${CONSTELLATION_STORIES[name]} ${hemisphere} ${visibility}`;
   }
-  return `${symbol} ${hemisphere} ${visibility} It is one of the 88 constellations formally recognized by the International Astronomical Union.`.trim();
+  return `${symbol} ${hemisphere} ${visibility}`.trim();
 }
