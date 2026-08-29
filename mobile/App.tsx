@@ -21,7 +21,13 @@ type ProjectedBody = SolarBody & ProjectedPoint;
 type Selection = { kind: 'star' | 'planet' | 'deepSky' | 'constellation'; id: string; name: string; details: string };
 type SearchEntry = { id: string; name: string; kind: Selection['kind']; raHours: number; decDeg: number };
 
-const CATALOG = (BRIGHT_STARS as CatalogStar[]).filter((star) => star.mag <= 5.2);
+const CATALOG = (BRIGHT_STARS as CatalogStar[]).filter((star) => (
+  Number.isFinite(star.hr)
+  && Number.isFinite(star.raHours)
+  && Number.isFinite(star.decDeg)
+  && Number.isFinite(star.mag)
+  && star.mag <= 5.2
+));
 const SKY_SHAPES = CONSTELLATIONS as Constellation[];
 const BASE_FOV = 62;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -256,7 +262,7 @@ export default function App() {
       kind: 'deepSky', id: object.designation, name: `${object.designation} · ${object.name}`, details: `${object.type.replace(/_/g, ' ')} · alt ${Math.round(object.altitude)}°`,
     }));
     if (display.stars) visibleStars.forEach((star) => candidates.push({
-      kind: 'star', id: String(star.hr), name: star.properName || star.name, details: `${star.constellation || 'Star'} · mag ${star.mag.toFixed(2)} · alt ${Math.round(star.altitude)}°`,
+      kind: 'star', id: String(star.hr), name: star.properName || star.name, details: `${star.constellation || 'Star'} · mag ${Number.isFinite(star.mag) ? star.mag.toFixed(2) : 'unknown'} · alt ${Math.round(star.altitude)}°`,
     }));
     if (display.constellationLabels) visibleConstellations.forEach((constellation) => {
       if (constellation.label) candidates.push({ kind: 'constellation', id: constellation.abbreviation, name: constellation.name, details: getConstellationInfo(constellation.name) });
