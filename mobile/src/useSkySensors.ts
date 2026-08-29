@@ -32,7 +32,7 @@ export function useSkySensors(): SensorState {
             // is the directed angle from upright (-Y) toward the screen normal
             // (-Z). Angles beyond zenith remain > 90 and are clamped below.
             const gravity = measurement.accelerationIncludingGravity;
-            elevation = Math.atan2(-gravity.z, -gravity.y) * 180 / Math.PI;
+            elevation = Math.atan2(gravity.z, -gravity.y) * 180 / Math.PI;
           } else if (measurement.rotation) {
             elevation = 90 - measurement.rotation.beta * 180 / Math.PI;
           }

@@ -56,8 +56,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (tracking) setView({ heading: sensors.heading, elevation: sensors.elevation });
+    if (tracking) {
+      setView((current) => {
+        if (Math.abs(current.heading - sensors.heading) < 0.01 && Math.abs(current.elevation - sensors.elevation) < 0.01) return current;
+        return { heading: sensors.heading, elevation: sensors.elevation };
+      });
+    }
   }, [tracking, sensors.heading, sensors.elevation]);
+
+  function updateViewport(event: LayoutChangeEvent) {
+    const { width, height } = event.nativeEvent.layout;
+    setViewport((current) => {
+      if (Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5) return current;
+      return { width, height };
+    });
+  }
 
   const viewHeading = view.heading;
   const viewElevation = view.elevation;
@@ -381,7 +394,7 @@ export default function App() {
           <Pressable style={styles.menuCamera} onPress={toggleCamera}><Text style={styles.menuCameraText}>{cameraMode ? 'Disable camera view' : 'Enable camera view'}</Text></Pressable>
         </View> : null}
 
-        <View style={styles.sky} onLayout={(event: LayoutChangeEvent) => setViewport(event.nativeEvent.layout)}>
+        <View style={styles.sky} onLayout={updateViewport}>
           <Svg width="100%" height="100%">
             {display.grid ? gridSegments.map((segment, index) =>
               <Line key={`grid-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#315369" strokeWidth={0.7} strokeOpacity={cameraMode ? 0.58 : 0.38} />,
