@@ -878,7 +878,7 @@ function drawCompass(ctxHelpers) {
   directions.forEach(({ label, angle }) => {
     const rotatedAngle = angle + orientation;
     const x = center.x + Math.sin(rotatedAngle) * (radius + 16);
-    const y = center.y - Math.cos(rotatedAngle) * (radius + 16);
+    const y = center.y + Math.cos(rotatedAngle) * (radius + 16);
     ctx.fillText(label, x, y);
   });
 }
@@ -944,7 +944,10 @@ function projectHorizontalToCanvas(ctxHelpers, coords, options = {}) {
 
   const azimuth = transformed.azimuth;
   const x = center.x + Math.sin(azimuth) * starRadius;
-  const y = center.y - Math.cos(azimuth) * starRadius;
+  // Match the mobile app's direct-view convention. When looking toward the
+  // zenith with north as the heading, north lies toward the bottom edge of the
+  // display and south toward the top; the previous sign mirrored the sky.
+  const y = center.y + Math.cos(azimuth) * starRadius;
 
   return { x, y };
 }
