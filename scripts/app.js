@@ -1413,25 +1413,37 @@ function buildConstellationOutlineSvg(constellation) {
   if (vertices.length === 0) {
     return '';
   }
-  const meanX = vertices.reduce((sum, point) => sum + Math.cos(degreesToRadians(point.raHours * 15)), 0);
-  const meanY = vertices.reduce((sum, point) => sum + Math.sin(degreesToRadians(point.raHours * 15)), 0);
-  const centerRa = (Math.atan2(meanY, meanX) * 180) / Math.PI;
-  const unwrap = (raHours) => {
-    let delta = raHours * 15 - centerRa;
-    while (delta > 180) delta -= 360;
-    while (delta < -180) delta += 360;
-    return delta;
+  const vectorFor = (point) => {
+    const ra = degreesToRadians(point.raHours * 15);
+    const dec = degreesToRadians(point.decDeg);
+    return [Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)];
   };
-  const coordinates = vertices.map((point) => ({ x: unwrap(point.raHours), y: point.decDeg }));
+  const mean = vertices.map(vectorFor).reduce((sum, vector) => sum.map((value, index) => value + vector[index]), [0, 0, 0]);
+  const meanLength = Math.hypot(...mean) || 1;
+  const centerVector = mean.map((value) => value / meanLength);
+  const centerRa = Math.atan2(centerVector[1], centerVector[0]);
+  const east = [-Math.sin(centerRa), Math.cos(centerRa), 0];
+  const northLength = Math.hypot(centerVector[0] * centerVector[2], centerVector[1] * centerVector[2], 1 - centerVector[2] ** 2) || 1;
+  const north = [-centerVector[0] * centerVector[2] / northLength, -centerVector[1] * centerVector[2] / northLength, (1 - centerVector[2] ** 2) / northLength];
+  const dot = (first, second) => first.reduce((sum, value, index) => sum + value * second[index], 0);
+  const project = (point) => {
+    const vector = vectorFor(point);
+    const depth = Math.max(0.05, dot(vector, centerVector));
+    return { x: -dot(vector, east) / depth, y: dot(vector, north) / depth };
+  };
+  const coordinates = vertices.map(project);
   const minX = Math.min(...coordinates.map((point) => point.x));
   const maxX = Math.max(...coordinates.map((point) => point.x));
   const minY = Math.min(...coordinates.map((point) => point.y));
   const maxY = Math.max(...coordinates.map((point) => point.y));
-  const scale = Math.min(132 / Math.max(maxX - minX, 1), 132 / Math.max(maxY - minY, 1));
-  const transform = (point) => ({
-    x: 80 + (unwrap(point.raHours) - (minX + maxX) / 2) * scale,
-    y: 80 - (point.decDeg - (minY + maxY) / 2) * scale,
-  });
+  const scale = Math.min(132 / Math.max(maxX - minX, 0.01), 132 / Math.max(maxY - minY, 0.01));
+  const transform = (point) => {
+    const projected = project(point);
+    return {
+      x: 80 + (projected.x - (minX + maxX) / 2) * scale,
+      y: 80 - (projected.y - (minY + maxY) / 2) * scale,
+    };
+  };
   const polylines = paths.map((path) => {
     const points = path.map(transform).map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
     return `<polyline points="${points}" fill="none" stroke="#76e5d2" stroke-width="2" />`;

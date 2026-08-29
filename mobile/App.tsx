@@ -480,25 +480,37 @@ function ConstellationPreview({ constellation }: { constellation: Constellation 
   const paths = useMemo(() => {
     const vertices = constellation.lines.flat();
     if (!vertices.length) return [];
-    const meanX = vertices.reduce((sum, point) => sum + Math.cos(point.raHours * 15 * Math.PI / 180), 0);
-    const meanY = vertices.reduce((sum, point) => sum + Math.sin(point.raHours * 15 * Math.PI / 180), 0);
-    const centerRa = Math.atan2(meanY, meanX) * 180 / Math.PI;
-    const unwrap = (raHours: number) => {
-      let delta = raHours * 15 - centerRa;
-      while (delta > 180) delta -= 360;
-      while (delta < -180) delta += 360;
-      return delta;
+    const vectorFor = (point: { raHours: number; decDeg: number }) => {
+      const ra = point.raHours * 15 * Math.PI / 180;
+      const dec = point.decDeg * Math.PI / 180;
+      return [Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)];
     };
-    const coordinates = vertices.map((point) => ({ x: unwrap(point.raHours), y: point.decDeg }));
+    const mean = vertices.map(vectorFor).reduce((sum, vector) => sum.map((value, index) => value + vector[index]), [0, 0, 0]);
+    const meanLength = Math.hypot(...mean) || 1;
+    const centerVector = mean.map((value) => value / meanLength);
+    const centerRa = Math.atan2(centerVector[1], centerVector[0]);
+    const east = [-Math.sin(centerRa), Math.cos(centerRa), 0];
+    const northLength = Math.hypot(centerVector[0] * centerVector[2], centerVector[1] * centerVector[2], 1 - centerVector[2] ** 2) || 1;
+    const north = [-centerVector[0] * centerVector[2] / northLength, -centerVector[1] * centerVector[2] / northLength, (1 - centerVector[2] ** 2) / northLength];
+    const dot = (first: number[], second: number[]) => first.reduce((sum, value, index) => sum + value * second[index], 0);
+    const project = (point: { raHours: number; decDeg: number }) => {
+      const vector = vectorFor(point);
+      const depth = Math.max(0.05, dot(vector, centerVector));
+      return { x: -dot(vector, east) / depth, y: dot(vector, north) / depth };
+    };
+    const coordinates = vertices.map(project);
     const minX = Math.min(...coordinates.map((point) => point.x));
     const maxX = Math.max(...coordinates.map((point) => point.x));
     const minY = Math.min(...coordinates.map((point) => point.y));
     const maxY = Math.max(...coordinates.map((point) => point.y));
-    const scale = Math.min(82 / Math.max(maxX - minX, 1), 82 / Math.max(maxY - minY, 1));
-    return constellation.lines.map((path) => path.map((point) => ({
-      x: 50 + (unwrap(point.raHours) - (minX + maxX) / 2) * scale,
-      y: 50 - (point.decDeg - (minY + maxY) / 2) * scale,
-    })));
+    const scale = Math.min(82 / Math.max(maxX - minX, 0.01), 82 / Math.max(maxY - minY, 0.01));
+    return constellation.lines.map((path) => path.map((point) => {
+      const projected = project(point);
+      return {
+        x: 50 + (projected.x - (minX + maxX) / 2) * scale,
+        y: 50 - (projected.y - (minY + maxY) / 2) * scale,
+      };
+    }));
   }, [constellation]);
   return <View style={styles.constellationPreview}><Svg width="100%" height="100%" viewBox="0 0 100 100">
     {paths.flatMap((path, pathIndex) => path.slice(1).map((point, index) => <Line key={`${pathIndex}-${index}`} x1={path[index].x} y1={path[index].y} x2={point.x} y2={point.y} stroke="#86efdf" strokeWidth={2} />))}
