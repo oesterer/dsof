@@ -1061,10 +1061,9 @@ function drawConstellations(ctxHelpers, projectedConstellations) {
   ctx.shadowColor = 'rgba(120, 180, 255, 0.35)';
   ctx.shadowBlur = 7;
 
-  projectedConstellations.forEach(({ data, projection }) => {
-    const debugHighlight = data.abbreviation === 'UMa' || data.abbreviation === 'UMi';
-    ctx.strokeStyle = debugHighlight ? 'rgba(255, 70, 85, 0.95)' : 'rgba(154, 213, 255, 0.55)';
-    ctx.lineWidth = debugHighlight ? 2.2 : 1.4;
+  projectedConstellations.forEach(({ projection }) => {
+    ctx.strokeStyle = 'rgba(154, 213, 255, 0.55)';
+    ctx.lineWidth = 1.4;
     projection.segments.forEach((segment) => {
       if (segment.length < 2) {
         return;
@@ -1120,8 +1119,7 @@ function drawConstellationLabels(ctxHelpers, projectedConstellations) {
       return;
     }
 
-    const debugHighlight = data.abbreviation === 'UMa' || data.abbreviation === 'UMi';
-    ctx.fillStyle = debugHighlight ? 'rgba(255, 100, 115, 0.98)' : 'rgba(190, 220, 255, 0.85)';
+    ctx.fillStyle = 'rgba(190, 220, 255, 0.85)';
     ctx.fillText(data.name, labelPoint.x, labelPoint.y);
     interactiveLabels.push({
       kind: 'constellation',

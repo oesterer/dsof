@@ -1,3 +1,5 @@
+import { CONSTELLATION_FACTS } from './constellationFacts.js';
+
 const CONSTELLATION_STORIES = {
   'Ursa Major': 'One of the best-known northern constellations. Its Big Dipper asterism has guided travelers for centuries: Merak and Dubhe point toward Polaris. In Greek tradition it represents the Great Bear.',
   'Ursa Minor': 'The Little Bear contains Polaris, the present north celestial pole star. Its Little Dipper asterism has long been important for navigation and timekeeping in the Northern Hemisphere.',
@@ -15,5 +17,19 @@ const CONSTELLATION_STORIES = {
 };
 
 export function getConstellationInfo(name) {
-  return CONSTELLATION_STORIES[name] || `${name} is one of the 88 constellations formally recognized by the International Astronomical Union. Its outline groups stars that appear near one another from Earth and serves as a practical map region for locating celestial objects.`;
+  const facts = CONSTELLATION_FACTS[name];
+  if (!facts) {
+    return CONSTELLATION_STORIES[name] || `${name} is one of the 88 constellations formally recognized by the International Astronomical Union.`;
+  }
+  const symbol = facts.symbolism ? `Traditionally it represents ${facts.symbolism}.` : '';
+  const hemisphere = facts.hemisphere === 'Both Hemispheres'
+    ? 'It can be observed from both hemispheres.'
+    : `It is primarily associated with the ${facts.hemisphere.toLowerCase()}.`;
+  const visibility = facts.visibility === 'All year round'
+    ? 'From suitable latitudes it can be observed throughout the year.'
+    : `Its listed observing season is ${facts.visibility}.`;
+  if (CONSTELLATION_STORIES[name]) {
+    return `${CONSTELLATION_STORIES[name]} ${hemisphere} ${visibility}`;
+  }
+  return `${symbol} ${hemisphere} ${visibility} It is one of the 88 constellations formally recognized by the International Astronomical Union.`.trim();
 }

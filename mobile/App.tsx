@@ -89,12 +89,14 @@ export default function App() {
       });
       return segments;
     };
-    const altitudePaths = [-75, -60, -45, -30, -15, 15, 30, 45, 60, 75].map((altitude) =>
-      Array.from({ length: 121 }, (_, index) => ({ altitude, azimuth: index * 3 })),
-    );
-    const azimuthPaths = Array.from({ length: 12 }, (_, index) =>
-      Array.from({ length: 61 }, (__, altitudeIndex) => ({ altitude: -90 + altitudeIndex * 3, azimuth: index * 30 })),
-    );
+    const equatorialGridPaths = sensors.latitude === null || sensors.longitude === null ? [] : [
+      ...[-60, -30, 0, 30, 60].map((decDeg) =>
+        Array.from({ length: 97 }, (_, index) => equatorialToHorizontal(index * 0.25, decDeg, sensors.latitude!, sensors.longitude!, observationTime)),
+      ),
+      ...[0, 4, 8, 12, 16, 20].map((raHours) =>
+        Array.from({ length: 61 }, (_, index) => equatorialToHorizontal(raHours, -90 + index * 3, sensors.latitude!, sensors.longitude!, observationTime)),
+      ),
+    ];
     const horizonPath = [Array.from({ length: 181 }, (_, index) => ({ altitude: 0, azimuth: index * 2 }))];
     const eclipticPath = sensors.latitude === null || sensors.longitude === null ? [] : [
       Array.from({ length: 181 }, (_, index) => {
@@ -103,7 +105,7 @@ export default function App() {
       }),
     ];
     return {
-      gridSegments: makeSegments([...altitudePaths, ...azimuthPaths]),
+      gridSegments: makeSegments(equatorialGridPaths),
       horizonSegments: makeSegments(horizonPath),
       eclipticSegments: makeSegments(eclipticPath),
     };
@@ -370,7 +372,7 @@ export default function App() {
           <MenuSwitch label="Deep-sky objects" value={display.deepSky} onChange={(value) => changeDisplay('deepSky', value)} />
           <MenuSwitch label="Constellation lines" value={display.constellations} onChange={(value) => changeDisplay('constellations', value)} />
           <MenuSwitch label="Constellation names" value={display.constellationLabels} onChange={(value) => changeDisplay('constellationLabels', value)} />
-          <MenuSwitch label="Alt / az grid" value={display.grid} onChange={(value) => changeDisplay('grid', value)} />
+          <MenuSwitch label="RA / Dec grid" value={display.grid} onChange={(value) => changeDisplay('grid', value)} />
           <MenuSwitch label="Horizon" value={display.horizon} onChange={(value) => changeDisplay('horizon', value)} />
           <MenuSwitch label="Ecliptic" value={display.ecliptic} onChange={(value) => changeDisplay('ecliptic', value)} />
           <MenuSwitch label="Aiming reticle" value={display.reticle} onChange={(value) => changeDisplay('reticle', value)} />
@@ -391,10 +393,10 @@ export default function App() {
               <Line key={`ecliptic-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#65d58b" strokeWidth={1.5} strokeOpacity={0.82} />,
             ) : null}
             {display.constellations ? visibleConstellations.flatMap((constellation) => constellation.segments.map((segment, index) =>
-              <Line key={`${constellation.name}-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke={constellation.abbreviation === 'UMa' || constellation.abbreviation === 'UMi' ? '#ff4d5f' : '#5288a7'} strokeWidth={constellation.abbreviation === 'UMa' || constellation.abbreviation === 'UMi' ? 1.8 : 1} strokeOpacity={cameraMode ? 0.9 : 0.68} />,
+              <Line key={`${constellation.name}-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#5288a7" strokeWidth={1} strokeOpacity={cameraMode ? 0.9 : 0.68} />,
             )) : null}
             {display.constellationLabels ? visibleConstellations.map((constellation) => constellation.label ?
-              <SvgText key={constellation.name} x={constellation.label.x} y={constellation.label.y} fill={selected?.kind === 'constellation' && selected.id === constellation.abbreviation ? '#86efdf' : constellation.abbreviation === 'UMa' || constellation.abbreviation === 'UMi' ? '#ff7180' : '#70a8c8'} fontSize={11 * labelScale} fontWeight={selected?.kind === 'constellation' && selected.id === constellation.abbreviation ? '800' : '500'} textAnchor="middle" opacity={0.95}>{constellation.name}</SvgText> : null,
+              <SvgText key={constellation.name} x={constellation.label.x} y={constellation.label.y} fill={selected?.kind === 'constellation' && selected.id === constellation.abbreviation ? '#86efdf' : '#70a8c8'} fontSize={11 * labelScale} fontWeight={selected?.kind === 'constellation' && selected.id === constellation.abbreviation ? '800' : '500'} textAnchor="middle" opacity={0.95}>{constellation.name}</SvgText> : null,
             ) : null}
             {display.deepSky ? visibleDeepSky.map((object) => <Fragment key={object.designation}>
               <Rect x={object.x - 4} y={object.y - 4} width={8} height={8} rotation={45} origin={`${object.x}, ${object.y}`} fill="none" stroke={selected?.kind === 'deepSky' && selected.id === object.designation ? '#86efdf' : '#d68cff'} strokeWidth={selected?.kind === 'deepSky' && selected.id === object.designation ? 2.2 : 1.3} />
