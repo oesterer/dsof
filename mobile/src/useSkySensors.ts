@@ -25,11 +25,19 @@ export function useSkySensors(): SensorState {
         });
         DeviceMotion.setUpdateInterval(80);
         motionSubscription = DeviceMotion.addListener((measurement) => {
-          if (!measurement.rotation) return;
-          const betaDegrees = (measurement.rotation.beta * 180) / Math.PI;
-          // Keep elevation signed so crossing zenith cannot mirror the view into
-          // the opposite hemisphere. Over-tilt is held at zenith instead.
-          setState((previous) => ({ ...previous, elevation: Math.max(-10, Math.min(90, 90 - betaDegrees)) }));
+          let elevation: number | null = null;
+          if (measurement.accelerationIncludingGravity) {
+            // Unlike Euler beta, the gravity vector does not fold when iOS
+            // changes its angle representation near face-up. In portrait, this
+            // is the directed angle from upright (-Y) toward the screen normal
+            // (-Z). Angles beyond zenith remain > 90 and are clamped below.
+            const gravity = measurement.accelerationIncludingGravity;
+            elevation = Math.atan2(-gravity.z, -gravity.y) * 180 / Math.PI;
+          } else if (measurement.rotation) {
+            elevation = 90 - measurement.rotation.beta * 180 / Math.PI;
+          }
+          if (elevation === null || !Number.isFinite(elevation)) return;
+          setState((previous) => ({ ...previous, elevation: Math.max(-10, Math.min(90, elevation)) }));
         });
       } catch (error) {
         if (active) setState((previous) => ({ ...previous, error: error instanceof Error ? error.message : 'Unable to start sky sensors.' }));
