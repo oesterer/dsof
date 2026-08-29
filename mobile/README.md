@@ -12,7 +12,8 @@ The first vertical slice includes live true-north heading and phone elevation, o
 - Tap **Resume live** to align the view with the phone again.
 - Use the clock control to preview the continuously advancing sky up to 72 hours in the future, then return to **Now**.
 - Tap stars, planets, the Sun, or Messier objects to identify them.
-- Open the top-right menu to toggle stars, planets and Sun, Messier deep-sky objects, constellation lines and names, the altitude/azimuth grid, horizon, ecliptic, aiming reticle, and camera view.
+- Search from the top-right menu to center the manual view on a star, constellation, planet, Moon, Sun, or Messier object.
+- Open the top-right menu to toggle stars, planets, Moon and Sun, Messier deep-sky objects, constellation lines and names, the altitude/azimuth grid, horizon, ecliptic, aiming reticle, and camera view.
 
 ## Run on an iPhone
 

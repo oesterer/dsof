@@ -26,8 +26,10 @@ export function useSkySensors(): SensorState {
         DeviceMotion.setUpdateInterval(80);
         motionSubscription = DeviceMotion.addListener((measurement) => {
           if (!measurement.rotation) return;
-          const betaDegrees = Math.abs((measurement.rotation.beta * 180) / Math.PI);
-          setState((previous) => ({ ...previous, elevation: Math.max(-20, Math.min(90, 90 - betaDegrees)) }));
+          const betaDegrees = (measurement.rotation.beta * 180) / Math.PI;
+          // Keep elevation signed so crossing zenith cannot mirror the view into
+          // the opposite hemisphere. Over-tilt is held at zenith instead.
+          setState((previous) => ({ ...previous, elevation: Math.max(-10, Math.min(90, 90 - betaDegrees)) }));
         });
       } catch (error) {
         if (active) setState((previous) => ({ ...previous, error: error instanceof Error ? error.message : 'Unable to start sky sensors.' }));

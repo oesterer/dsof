@@ -5,6 +5,7 @@ import { MESSIER_IMAGES } from '../data/messierImages.js';
 import { PLANETS, EARTH_ORBIT } from '../data/planets.js';
 import { PLANET_IMAGES } from '../data/planetImages.js';
 import { BAYER_GREEK, CONSTELLATION_GENITIVE } from '../data/starNames.js';
+import { getConstellationInfo } from '../data/constellationInfo.js';
 
 const canvas = document.getElementById('sky-canvas');
 const ctx = canvas.getContext('2d');
@@ -52,6 +53,7 @@ let isRotating = false;
 let activePointerId = null;
 let lastPointerX = 0;
 let lastPointerY = 0;
+let pointerMoved = false;
 let isRendering = false;
 
 const maxMagnitudeInputValue = parseFloat(maxMagnitudeInput?.value);
@@ -1031,7 +1033,8 @@ function projectConstellation(
       observationDate
     );
     labelPoint = projectHorizontalToCanvas(ctxHelpers, labelHorizontal);
-  } else if (!labelPoint && visiblePoints.length > 0) {
+  }
+  if (!labelPoint && visiblePoints.length > 0) {
     const sum = visiblePoints.reduce(
       (acc, point) => ({
         x: acc.x + point.x,
@@ -1058,7 +1061,10 @@ function drawConstellations(ctxHelpers, projectedConstellations) {
   ctx.shadowColor = 'rgba(120, 180, 255, 0.35)';
   ctx.shadowBlur = 7;
 
-  projectedConstellations.forEach(({ projection }) => {
+  projectedConstellations.forEach(({ data, projection }) => {
+    const debugHighlight = data.abbreviation === 'UMa' || data.abbreviation === 'UMi';
+    ctx.strokeStyle = debugHighlight ? 'rgba(255, 70, 85, 0.95)' : 'rgba(154, 213, 255, 0.55)';
+    ctx.lineWidth = debugHighlight ? 2.2 : 1.4;
     projection.segments.forEach((segment) => {
       if (segment.length < 2) {
         return;
@@ -1075,8 +1081,9 @@ function drawConstellations(ctxHelpers, projectedConstellations) {
 
 function drawConstellationLabels(ctxHelpers, projectedConstellations) {
   if (!Array.isArray(projectedConstellations) || projectedConstellations.length === 0) {
-    return;
+    return [];
   }
+  const interactiveLabels = [];
   ctx.save();
   ctx.font = '12px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(190, 220, 255, 0.85)';
@@ -1113,10 +1120,22 @@ function drawConstellationLabels(ctxHelpers, projectedConstellations) {
       return;
     }
 
+    const debugHighlight = data.abbreviation === 'UMa' || data.abbreviation === 'UMi';
+    ctx.fillStyle = debugHighlight ? 'rgba(255, 100, 115, 0.98)' : 'rgba(190, 220, 255, 0.85)';
     ctx.fillText(data.name, labelPoint.x, labelPoint.y);
+    interactiveLabels.push({
+      kind: 'constellation',
+      displayName: data.name,
+      abbreviation: data.abbreviation,
+      constellation: data,
+      x: labelPoint.x,
+      y: labelPoint.y,
+      radius: Math.max(24, ctx.measureText(data.name).width / 2),
+    });
   });
 
   ctx.restore();
+  return interactiveLabels;
 }
 
 function drawMessierIcon(point, type) {
@@ -1375,6 +1394,41 @@ function updateInteractiveItems(items) {
   }
 }
 
+function buildConstellationOutlineSvg(constellation) {
+  const paths = (constellation?.lines || []).filter((path) =>
+    path.length > 0 && typeof path[0] === 'object' && Number.isFinite(path[0].raHours)
+  );
+  const vertices = paths.flat();
+  if (vertices.length === 0) {
+    return '';
+  }
+  const meanX = vertices.reduce((sum, point) => sum + Math.cos(degreesToRadians(point.raHours * 15)), 0);
+  const meanY = vertices.reduce((sum, point) => sum + Math.sin(degreesToRadians(point.raHours * 15)), 0);
+  const centerRa = (Math.atan2(meanY, meanX) * 180) / Math.PI;
+  const unwrap = (raHours) => {
+    let delta = raHours * 15 - centerRa;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    return delta;
+  };
+  const coordinates = vertices.map((point) => ({ x: unwrap(point.raHours), y: point.decDeg }));
+  const minX = Math.min(...coordinates.map((point) => point.x));
+  const maxX = Math.max(...coordinates.map((point) => point.x));
+  const minY = Math.min(...coordinates.map((point) => point.y));
+  const maxY = Math.max(...coordinates.map((point) => point.y));
+  const scale = Math.min(132 / Math.max(maxX - minX, 1), 132 / Math.max(maxY - minY, 1));
+  const transform = (point) => ({
+    x: 80 + (unwrap(point.raHours) - (minX + maxX) / 2) * scale,
+    y: 80 - (point.decDeg - (minY + maxY) / 2) * scale,
+  });
+  const polylines = paths.map((path) => {
+    const points = path.map(transform).map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
+    return `<polyline points="${points}" fill="none" stroke="#76e5d2" stroke-width="2" />`;
+  }).join('');
+  const stars = vertices.map(transform).map((point) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="2.2" fill="#fff" />`).join('');
+  return `<svg class="constellation-outline" viewBox="0 0 160 160" role="img" aria-label="${escapeHtml(constellation.name)} outline">${polylines}${stars}</svg>`;
+}
+
 function describeInteractiveItem(item) {
   if (!item) {
     return null;
@@ -1385,6 +1439,15 @@ function describeInteractiveItem(item) {
     return {
       html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
       ariaLabel: text,
+    };
+  }
+
+  if (item.kind === 'constellation') {
+    const story = getConstellationInfo(item.displayName);
+    const outline = buildConstellationOutlineSvg(item.constellation);
+    return {
+      html: `${outline}<div class="tooltip-text"><strong>${escapeHtml(item.displayName)}</strong><br>${escapeHtml(story)}</div>`,
+      ariaLabel: `${item.displayName}. ${story}`,
     };
   }
 
@@ -1538,6 +1601,7 @@ function handleCanvasPointerDown(event) {
   activePointerId = event.pointerId;
   lastPointerX = event.clientX;
   lastPointerY = event.clientY;
+  pointerMoved = false;
   if (canvas.setPointerCapture) {
     canvas.setPointerCapture(event.pointerId);
   }
@@ -1549,12 +1613,37 @@ function handleCanvasPointerMove(event) {
   }
   const deltaX = event.clientX - lastPointerX;
   const deltaY = event.clientY - lastPointerY;
+  if (Math.abs(deltaX) + Math.abs(deltaY) > 2) {
+    pointerMoved = true;
+  }
   lastPointerX = event.clientX;
   lastPointerY = event.clientY;
   state.orientationRad = wrapAngle(state.orientationRad + deltaX * ORIENTATION_SENSITIVITY);
   const nextPitch = state.pitchRad - deltaY * PITCH_SENSITIVITY;
   state.pitchRad = clamp(nextPitch, PITCH_MIN, PITCH_MAX);
   reRenderIfPossible();
+}
+
+function handleCanvasTap(event) {
+  if (pointerMoved || !state.showStarTooltips || interactiveItems.length === 0) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  let bestItem = null;
+  let bestDistance = Infinity;
+  interactiveItems.forEach((item) => {
+    const distance = Math.hypot(x - item.x, y - item.y);
+    if (distance <= (item.radius ?? 10) && distance < bestDistance) {
+      bestItem = item;
+      bestDistance = distance;
+    }
+  });
+  const description = describeInteractiveItem(bestItem);
+  if (description) {
+    showTooltip(description, event.clientX, event.clientY);
+  }
 }
 
 function handleCanvasPointerUp(event) {
@@ -1941,7 +2030,7 @@ function renderSky() {
     }
 
     if (state.showConstellationLabels) {
-      drawConstellationLabels(ctxHelpers, projectedConstellations);
+      interactive.push(...drawConstellationLabels(ctxHelpers, projectedConstellations));
     }
 
     const planetInteractive = [];
@@ -2307,6 +2396,7 @@ canvas.addEventListener('pointerdown', handleCanvasPointerDown);
 canvas.addEventListener('pointermove', handleCanvasPointerMove);
 canvas.addEventListener('pointerup', handleCanvasPointerUp);
 canvas.addEventListener('pointercancel', handleCanvasPointerUp);
+canvas.addEventListener('click', handleCanvasTap);
 canvas.addEventListener('wheel', handleCanvasWheel, { passive: false });
 
 window.addEventListener('resize', () => {

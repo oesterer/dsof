@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
@@ -7,23 +7,31 @@ import { BRIGHT_STARS } from './src/data/brightStars';
 import { CONSTELLATIONS } from './src/data/constellations';
 import { MESSIER_OBJECTS } from './src/data/messier';
 import { MESSIER_ASSETS, PLANET_ASSETS } from './src/data/imageAssets';
+import { getConstellationInfo } from './src/data/constellationInfo';
 import { CatalogStar, ProjectedPoint, ProjectedStar, cardinalDirection, eclipticToEquatorial, equatorialToHorizontal, projectHorizontalPoint, projectStar, toHorizontal } from './src/astro';
 import { computeSolarSystem, SolarBody } from './src/solarSystem';
 import { useSkySensors } from './src/useSkySensors';
 
 type Constellation = { name: string; abbreviation: string; lines: { raHours: number; decDeg: number }[][]; label?: { raHours: number; decDeg: number } };
 type DisplayOptions = { stars: boolean; constellations: boolean; constellationLabels: boolean; grid: boolean; horizon: boolean; ecliptic: boolean; planets: boolean; deepSky: boolean; reticle: boolean };
-type ProjectedConstellation = { name: string; segments: [ProjectedPoint, ProjectedPoint][]; label: ProjectedPoint | null };
+type ProjectedConstellation = { name: string; abbreviation: string; segments: [ProjectedPoint, ProjectedPoint][]; label: ProjectedPoint | null };
 type MessierObject = { designation: string; name: string; type: string; raHours: number; decDeg: number };
 type ProjectedMessier = MessierObject & ProjectedPoint;
 type ProjectedBody = SolarBody & ProjectedPoint;
-type Selection = { kind: 'star' | 'planet' | 'deepSky'; id: string; name: string; details: string };
+type Selection = { kind: 'star' | 'planet' | 'deepSky' | 'constellation'; id: string; name: string; details: string };
+type SearchEntry = { id: string; name: string; kind: Selection['kind']; raHours: number; decDeg: number };
 
 const CATALOG = (BRIGHT_STARS as CatalogStar[]).filter((star) => star.mag <= 5.2);
 const SKY_SHAPES = CONSTELLATIONS as Constellation[];
 const BASE_FOV = 62;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
+const moonGlyph = (body: SolarBody) => {
+  if ((body.illumination || 0) < 0.03) return '●';
+  if ((body.illumination || 0) > 0.97) return '○';
+  if ((body.illumination || 0) < 0.53) return body.waxing ? '◒' : '◓';
+  return body.waxing ? '◐' : '◑';
+};
 
 export default function App() {
   const sensors = useSkySensors();
@@ -35,6 +43,7 @@ export default function App() {
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
   const [timeOpen, setTimeOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [tracking, setTracking] = useState(true);
   const [view, setView] = useState({ heading: 0, elevation: 25 });
   const [zoom, setZoom] = useState(1);
@@ -100,14 +109,16 @@ export default function App() {
     };
   }, [viewHeading, viewElevation, viewport, fieldOfView, sensors.latitude, sensors.longitude, observationTime]);
 
+  const solarCatalog = useMemo(() => computeSolarSystem(observationTime), [observationTime]);
+
   const visibleBodies = useMemo<ProjectedBody[]>(() => {
     if (!display.planets || sensors.latitude === null || sensors.longitude === null) return [];
-    return computeSolarSystem(observationTime).map((body) => {
+    return solarCatalog.map((body) => {
       const horizontal = equatorialToHorizontal(body.raHours, body.decDeg, sensors.latitude!, sensors.longitude!, observationTime);
       const projected = projectHorizontalPoint(horizontal, viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView);
       return projected ? { ...body, ...projected } : null;
     }).filter((body): body is ProjectedBody => body !== null);
-  }, [display.planets, sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView]);
+  }, [display.planets, sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView, solarCatalog]);
 
   const visibleDeepSky = useMemo<ProjectedMessier[]>(() => {
     if (!display.deepSky || sensors.latitude === null || sensors.longitude === null) return [];
@@ -117,21 +128,6 @@ export default function App() {
       return projected ? { ...object, ...projected } : null;
     }).filter((object): object is ProjectedMessier => object !== null);
   }, [display.deepSky, sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView]);
-
-  const selectedProjected = useMemo(() => {
-    if (!selected) return null;
-    if (selected.kind === 'planet') return visibleBodies.find((body) => body.name === selected.id) || null;
-    if (selected.kind === 'deepSky') return visibleDeepSky.find((object) => object.designation === selected.id) || null;
-    return visibleStars.find((star) => String(star.hr) === selected.id) || null;
-  }, [selected, visibleBodies, visibleDeepSky, visibleStars]);
-
-  useEffect(() => {
-    if (selected && !selectedProjected) setSelected(null);
-  }, [selected, selectedProjected]);
-
-  const selectedImage = selected?.kind === 'planet'
-    ? PLANET_ASSETS[selected.id]
-    : selected?.kind === 'deepSky' ? MESSIER_ASSETS[selected.id] : undefined;
 
   const visibleConstellations = useMemo<ProjectedConstellation[]>(() => {
     if (sensors.latitude === null || sensors.longitude === null || (!display.constellations && !display.constellationLabels)) return [];
@@ -146,18 +142,100 @@ export default function App() {
           if (points[0] && points[1]) segments.push(points as [ProjectedPoint, ProjectedPoint]);
         }
       });
-      const label = constellation.label ? projectHorizontalPoint(
+      const catalogLabel = constellation.label ? projectHorizontalPoint(
         equatorialToHorizontal(constellation.label.raHours, constellation.label.decDeg, sensors.latitude!, sensors.longitude!, observationTime),
         viewHeading, viewElevation, viewport.width, viewport.height, fieldOfView,
       ) : null;
-      return { name: constellation.name, segments, label };
+      const labelCandidates = segments.flatMap(([first, second]) => [
+        first,
+        second,
+        { ...first, x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
+      ]).filter((point) => point.x >= 18 && point.x <= viewport.width - 18 && point.y >= 18 && point.y <= viewport.height - 18);
+      const nearestCandidate = labelCandidates.reduce<ProjectedPoint | null>((best, point) => {
+        if (!best) return point;
+        const distance = Math.hypot(point.x - viewport.width / 2, point.y - viewport.height / 2);
+        const bestDistance = Math.hypot(best.x - viewport.width / 2, best.y - viewport.height / 2);
+        return distance < bestDistance ? point : best;
+      }, null);
+      const fallbackSegment = segments.reduce<[ProjectedPoint, ProjectedPoint] | null>((best, segment) => {
+        if (!best) return segment;
+        const distance = Math.hypot((segment[0].x + segment[1].x) / 2 - viewport.width / 2, (segment[0].y + segment[1].y) / 2 - viewport.height / 2);
+        const bestDistance = Math.hypot((best[0].x + best[1].x) / 2 - viewport.width / 2, (best[0].y + best[1].y) / 2 - viewport.height / 2);
+        return distance < bestDistance ? segment : best;
+      }, null);
+      const fallbackLabel = nearestCandidate || (fallbackSegment ? {
+        ...fallbackSegment[0],
+        x: clamp((fallbackSegment[0].x + fallbackSegment[1].x) / 2, 24, viewport.width - 24),
+        y: clamp((fallbackSegment[0].y + fallbackSegment[1].y) / 2, 24, viewport.height - 24),
+      } : null);
+      return { name: constellation.name, abbreviation: constellation.abbreviation, segments, label: catalogLabel || fallbackLabel };
     }).filter((constellation) => constellation.segments.length > 0 || constellation.label);
   }, [sensors.latitude, sensors.longitude, observationTime, viewHeading, viewElevation, viewport, fieldOfView, display.constellations, display.constellationLabels]);
+
+  const selectedProjected = useMemo(() => {
+    if (!selected) return null;
+    if (selected.kind === 'planet') return visibleBodies.find((body) => body.name === selected.id) || null;
+    if (selected.kind === 'deepSky') return visibleDeepSky.find((object) => object.designation === selected.id) || null;
+    if (selected.kind === 'constellation') return visibleConstellations.find((constellation) => constellation.abbreviation === selected.id)?.label || null;
+    return visibleStars.find((star) => String(star.hr) === selected.id) || null;
+  }, [selected, visibleBodies, visibleDeepSky, visibleStars, visibleConstellations]);
+
+  useEffect(() => {
+    if (selected && !selectedProjected) setSelected(null);
+  }, [selected, selectedProjected]);
+
+  const selectedImage = selected?.kind === 'planet'
+    ? PLANET_ASSETS[selected.id]
+    : selected?.kind === 'deepSky' ? MESSIER_ASSETS[selected.id] : undefined;
+  const selectedConstellation = selected?.kind === 'constellation' ? SKY_SHAPES.find((constellation) => constellation.abbreviation === selected.id) : undefined;
+
+  const searchResults = useMemo<SearchEntry[]>(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    const entries: SearchEntry[] = [];
+    CATALOG.forEach((star) => {
+      const name = star.properName || star.name;
+      if (name?.toLowerCase().includes(query)) entries.push({ id: String(star.hr), name, kind: 'star', raHours: star.raHours, decDeg: star.decDeg });
+    });
+    (MESSIER_OBJECTS as MessierObject[]).forEach((object) => {
+      if (`${object.designation} ${object.name}`.toLowerCase().includes(query)) entries.push({ id: object.designation, name: `${object.designation} · ${object.name}`, kind: 'deepSky', raHours: object.raHours, decDeg: object.decDeg });
+    });
+    SKY_SHAPES.forEach((constellation) => {
+      if (`${constellation.name} ${constellation.abbreviation}`.toLowerCase().includes(query)) {
+        const point = constellation.label || constellation.lines[0]?.[0];
+        if (point) entries.push({ id: constellation.abbreviation, name: constellation.name, kind: 'constellation', raHours: point.raHours, decDeg: point.decDeg });
+      }
+    });
+    solarCatalog.forEach((body) => {
+      if (body.name.toLowerCase().includes(query)) entries.push({ id: body.name, name: body.name, kind: 'planet', raHours: body.raHours, decDeg: body.decDeg });
+    });
+    return entries.sort((first, second) => Number(!first.name.toLowerCase().startsWith(query)) - Number(!second.name.toLowerCase().startsWith(query)) || first.name.localeCompare(second.name)).slice(0, 8);
+  }, [searchQuery, solarCatalog]);
+
+  function centerSearchResult(entry: SearchEntry) {
+    if (sensors.latitude === null || sensors.longitude === null) return;
+    const horizontal = equatorialToHorizontal(entry.raHours, entry.decDeg, sensors.latitude, sensors.longitude, observationTime);
+    setView({ heading: horizontal.azimuth, elevation: horizontal.altitude });
+    setTracking(false);
+    setDisplay((current) => ({
+      ...current,
+      stars: entry.kind === 'star' ? true : current.stars,
+      deepSky: entry.kind === 'deepSky' ? true : current.deepSky,
+      planets: entry.kind === 'planet' ? true : current.planets,
+      constellations: entry.kind === 'constellation' ? true : current.constellations,
+      constellationLabels: entry.kind === 'constellation' ? true : current.constellationLabels,
+    }));
+    setSelected(null);
+    setSearchQuery('');
+    setMenuOpen(false);
+  }
 
   function identifyAt(x: number, y: number) {
     const candidates: Selection[] = [];
     if (display.planets) visibleBodies.forEach((body) => candidates.push({
-      kind: 'planet', id: body.name, name: body.name, details: `Solar system · alt ${Math.round(body.altitude)}°`,
+      kind: 'planet', id: body.name, name: body.name, details: body.name === 'Moon'
+        ? `${body.phaseName} · ${Math.round((body.illumination || 0) * 100)}% lit · alt ${Math.round(body.altitude)}°`
+        : `Solar system · alt ${Math.round(body.altitude)}°`,
     }));
     if (display.deepSky) visibleDeepSky.forEach((object) => candidates.push({
       kind: 'deepSky', id: object.designation, name: `${object.designation} · ${object.name}`, details: `${object.type.replaceAll('_', ' ')} · alt ${Math.round(object.altitude)}°`,
@@ -165,13 +243,18 @@ export default function App() {
     if (display.stars) visibleStars.forEach((star) => candidates.push({
       kind: 'star', id: String(star.hr), name: star.properName || star.name, details: `${star.constellation || 'Star'} · mag ${star.mag.toFixed(2)} · alt ${Math.round(star.altitude)}°`,
     }));
+    if (display.constellationLabels) visibleConstellations.forEach((constellation) => {
+      if (constellation.label) candidates.push({ kind: 'constellation', id: constellation.abbreviation, name: constellation.name, details: getConstellationInfo(constellation.name) });
+    });
     const nearest = candidates.reduce<{ object: Selection; distance: number } | null>((best, object) => {
       const projected = object.kind === 'planet'
         ? visibleBodies.find((body) => body.name === object.id)
-        : object.kind === 'deepSky' ? visibleDeepSky.find((entry) => entry.designation === object.id) : visibleStars.find((star) => String(star.hr) === object.id);
+        : object.kind === 'deepSky' ? visibleDeepSky.find((entry) => entry.designation === object.id)
+          : object.kind === 'constellation' ? visibleConstellations.find((entry) => entry.abbreviation === object.id)?.label
+            : visibleStars.find((star) => String(star.hr) === object.id);
       if (!projected) return best;
       const distance = Math.hypot(projected.x - x, projected.y - y);
-      if (distance > (object.kind === 'planet' ? 34 : 28)) return best;
+      if (distance > (object.kind === 'planet' ? 34 : object.kind === 'constellation' ? 42 : 28)) return best;
       return !best || distance < best.distance ? { object, distance } : best;
     }, null);
     setSelected(nearest?.object || null);
@@ -241,7 +324,7 @@ export default function App() {
 
   function changeDisplay(option: keyof DisplayOptions, value: boolean) {
     setDisplay((current) => ({ ...current, [option]: value }));
-    if (!value && ((option === 'stars' && selected?.kind === 'star') || (option === 'planets' && selected?.kind === 'planet') || (option === 'deepSky' && selected?.kind === 'deepSky'))) setSelected(null);
+    if (!value && ((option === 'stars' && selected?.kind === 'star') || (option === 'planets' && selected?.kind === 'planet') || (option === 'deepSky' && selected?.kind === 'deepSky') || (option === 'constellationLabels' && selected?.kind === 'constellation'))) setSelected(null);
   }
 
   const direction = cardinalDirection(viewHeading);
@@ -275,11 +358,15 @@ export default function App() {
         {menuOpen ? <Pressable accessibilityLabel="Close display menu" style={styles.menuBackdrop} onPress={() => setMenuOpen(false)} /> : null}
         {menuOpen ? <View style={styles.menu}>
           <View style={styles.menuHeadingRow}>
-            <Text style={styles.menuTitle}>Display</Text>
+            <Text style={styles.menuTitle}>Sky menu</Text>
             <Pressable accessibilityLabel="Close menu" hitSlop={10} onPress={() => setMenuOpen(false)}><Text style={styles.menuClose}>×</Text></Pressable>
           </View>
+          <TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder="Find star, planet, M42…" placeholderTextColor="#668296" autoCorrect={false} returnKeyType="search" style={styles.searchInput} />
+          {searchQuery.trim() ? <View style={styles.searchResults}>
+            {searchResults.length ? searchResults.map((entry) => <Pressable key={`${entry.kind}-${entry.id}`} style={styles.searchResult} onPress={() => centerSearchResult(entry)}><Text style={styles.searchResultName}>{entry.name}</Text><Text style={styles.searchResultKind}>{entry.kind === 'deepSky' ? 'deep sky' : entry.kind}</Text></Pressable>) : <Text style={styles.searchEmpty}>No matching object</Text>}
+          </View> : <>
           <MenuSwitch label="Stars" value={display.stars} onChange={(value) => changeDisplay('stars', value)} />
-          <MenuSwitch label="Planets & Sun" value={display.planets} onChange={(value) => changeDisplay('planets', value)} />
+          <MenuSwitch label="Planets, Moon & Sun" value={display.planets} onChange={(value) => changeDisplay('planets', value)} />
           <MenuSwitch label="Deep-sky objects" value={display.deepSky} onChange={(value) => changeDisplay('deepSky', value)} />
           <MenuSwitch label="Constellation lines" value={display.constellations} onChange={(value) => changeDisplay('constellations', value)} />
           <MenuSwitch label="Constellation names" value={display.constellationLabels} onChange={(value) => changeDisplay('constellationLabels', value)} />
@@ -287,6 +374,7 @@ export default function App() {
           <MenuSwitch label="Horizon" value={display.horizon} onChange={(value) => changeDisplay('horizon', value)} />
           <MenuSwitch label="Ecliptic" value={display.ecliptic} onChange={(value) => changeDisplay('ecliptic', value)} />
           <MenuSwitch label="Aiming reticle" value={display.reticle} onChange={(value) => changeDisplay('reticle', value)} />
+          </>}
           <View style={styles.menuDivider} />
           <Pressable style={styles.menuCamera} onPress={toggleCamera}><Text style={styles.menuCameraText}>{cameraMode ? 'Disable camera view' : 'Enable camera view'}</Text></Pressable>
         </View> : null}
@@ -303,10 +391,10 @@ export default function App() {
               <Line key={`ecliptic-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#65d58b" strokeWidth={1.5} strokeOpacity={0.82} />,
             ) : null}
             {display.constellations ? visibleConstellations.flatMap((constellation) => constellation.segments.map((segment, index) =>
-              <Line key={`${constellation.name}-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke="#5288a7" strokeWidth={1} strokeOpacity={cameraMode ? 0.85 : 0.55} />,
+              <Line key={`${constellation.name}-${index}`} x1={segment[0].x} y1={segment[0].y} x2={segment[1].x} y2={segment[1].y} stroke={constellation.abbreviation === 'UMa' || constellation.abbreviation === 'UMi' ? '#ff4d5f' : '#5288a7'} strokeWidth={constellation.abbreviation === 'UMa' || constellation.abbreviation === 'UMi' ? 1.8 : 1} strokeOpacity={cameraMode ? 0.9 : 0.68} />,
             )) : null}
             {display.constellationLabels ? visibleConstellations.map((constellation) => constellation.label ?
-              <SvgText key={constellation.name} x={constellation.label.x} y={constellation.label.y} fill="#70a8c8" fontSize={11 * labelScale} textAnchor="middle" opacity={0.85}>{constellation.name}</SvgText> : null,
+              <SvgText key={constellation.name} x={constellation.label.x} y={constellation.label.y} fill={selected?.kind === 'constellation' && selected.id === constellation.abbreviation ? '#86efdf' : constellation.abbreviation === 'UMa' || constellation.abbreviation === 'UMi' ? '#ff7180' : '#70a8c8'} fontSize={11 * labelScale} fontWeight={selected?.kind === 'constellation' && selected.id === constellation.abbreviation ? '800' : '500'} textAnchor="middle" opacity={0.95}>{constellation.name}</SvgText> : null,
             ) : null}
             {display.deepSky ? visibleDeepSky.map((object) => <Fragment key={object.designation}>
               <Rect x={object.x - 4} y={object.y - 4} width={8} height={8} rotation={45} origin={`${object.x}, ${object.y}`} fill="none" stroke={selected?.kind === 'deepSky' && selected.id === object.designation ? '#86efdf' : '#d68cff'} strokeWidth={selected?.kind === 'deepSky' && selected.id === object.designation ? 2.2 : 1.3} />
@@ -314,7 +402,9 @@ export default function App() {
             </Fragment>) : null}
             {display.stars ? visibleStars.map((star) => <Circle key={star.hr} cx={star.x} cy={star.y} r={star.radius} fill={star.mag < 1.5 ? '#fff4d6' : '#e8f3ff'} opacity={Math.max(star.altitude < 0 ? 0.22 : 0.45, (1 - star.mag / 8) * (star.altitude < 0 ? 0.55 : 1))} />) : null}
             {display.planets ? visibleBodies.map((body) => <Fragment key={body.name}>
-              <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : '#ffffff'} strokeOpacity={0.9} strokeWidth={selected?.kind === 'planet' && selected.id === body.name ? 2.5 : body.name === 'Sun' ? 1.5 : 0.7} />
+              {body.name === 'Moon'
+                ? <SvgText x={body.x} y={body.y + 6} fill={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : '#eef2f5'} fontSize={19} textAnchor="middle">{moonGlyph(body)}</SvgText>
+                : <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : '#ffffff'} strokeOpacity={0.9} strokeWidth={selected?.kind === 'planet' && selected.id === body.name ? 2.5 : body.name === 'Sun' ? 1.5 : 0.7} />}
               <SvgText x={body.x} y={body.y - 11 - (labelScale - 1) * 4} fill={selected?.kind === 'planet' && selected.id === body.name ? '#86efdf' : body.name === 'Sun' ? '#ffe39a' : '#ffffff'} fontSize={11 * labelScale} fontWeight={selected?.kind === 'planet' && selected.id === body.name ? '800' : '600'} textAnchor="middle">{body.name}</SvgText>
             </Fragment>) : null}
             {display.reticle ? <><Line x1="50%" y1="47%" x2="50%" y2="53%" stroke="#86efdf" strokeOpacity={0.65} /><Line x1="46%" y1="50%" x2="54%" y2="50%" stroke="#86efdf" strokeOpacity={0.65} /></> : null}
@@ -346,7 +436,8 @@ export default function App() {
         <View style={styles.bottomPanel}>
           {selected ? <View style={styles.objectCard}>
             {selectedImage ? <Image source={selectedImage} style={styles.objectImage} resizeMode="cover" /> : null}
-            <View style={styles.objectCopy}><Text style={styles.objectKind}>{selected.kind === 'deepSky' ? 'DEEP-SKY OBJECT' : selected.kind === 'planet' ? 'SOLAR SYSTEM' : 'STAR'}</Text><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text></View>
+            {selectedConstellation ? <ConstellationPreview constellation={selectedConstellation} /> : null}
+            <View style={styles.objectCopy}><Text style={styles.objectKind}>{selected.kind === 'deepSky' ? 'DEEP-SKY OBJECT' : selected.kind === 'planet' ? 'SOLAR SYSTEM' : selected.kind === 'constellation' ? 'CONSTELLATION' : 'STAR'}</Text><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text></View>
             <Pressable onPress={() => setSelected(null)}><Text style={styles.close}>×</Text></Pressable>
           </View> : <Text style={styles.hint}>{tracking ? 'Aim your phone. Pinch to zoom or drag to explore.' : 'Manual view active. Tap Resume live to follow your phone.'}</Text>}
           {sensors.headingAccuracy < 2 && sensors.ready && tracking ? <Text style={styles.calibration}>Move the phone in a figure eight to calibrate the compass.</Text> : null}
@@ -364,17 +455,47 @@ function TimeStep({ label, onPress, disabled = false }: { label: string; onPress
   return <Pressable disabled={disabled} style={[styles.timeStep, disabled && styles.timeStepDisabled]} onPress={onPress}><Text style={styles.timeStepText}>{label}</Text></Pressable>;
 }
 
+function ConstellationPreview({ constellation }: { constellation: Constellation }) {
+  const paths = useMemo(() => {
+    const vertices = constellation.lines.flat();
+    if (!vertices.length) return [];
+    const meanX = vertices.reduce((sum, point) => sum + Math.cos(point.raHours * 15 * Math.PI / 180), 0);
+    const meanY = vertices.reduce((sum, point) => sum + Math.sin(point.raHours * 15 * Math.PI / 180), 0);
+    const centerRa = Math.atan2(meanY, meanX) * 180 / Math.PI;
+    const unwrap = (raHours: number) => {
+      let delta = raHours * 15 - centerRa;
+      while (delta > 180) delta -= 360;
+      while (delta < -180) delta += 360;
+      return delta;
+    };
+    const coordinates = vertices.map((point) => ({ x: unwrap(point.raHours), y: point.decDeg }));
+    const minX = Math.min(...coordinates.map((point) => point.x));
+    const maxX = Math.max(...coordinates.map((point) => point.x));
+    const minY = Math.min(...coordinates.map((point) => point.y));
+    const maxY = Math.max(...coordinates.map((point) => point.y));
+    const scale = Math.min(82 / Math.max(maxX - minX, 1), 82 / Math.max(maxY - minY, 1));
+    return constellation.lines.map((path) => path.map((point) => ({
+      x: 50 + (unwrap(point.raHours) - (minX + maxX) / 2) * scale,
+      y: 50 - (point.decDeg - (minY + maxY) / 2) * scale,
+    })));
+  }, [constellation]);
+  return <View style={styles.constellationPreview}><Svg width="100%" height="100%" viewBox="0 0 100 100">
+    {paths.flatMap((path, pathIndex) => path.slice(1).map((point, index) => <Line key={`${pathIndex}-${index}`} x1={path[index].x} y1={path[index].y} x2={point.x} y2={point.y} stroke="#86efdf" strokeWidth={2} />))}
+    {paths.flatMap((path, pathIndex) => path.map((point, index) => <Circle key={`p-${pathIndex}-${index}`} cx={point.x} cy={point.y} r={2.2} fill="#fff" />))}
+  </Svg></View>;
+}
+
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: '#030812' }, nightBackground: { backgroundColor: '#071526' }, safeArea: { flex: 1, paddingTop: NativeStatusBar.currentHeight || 0 },
   header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 5 }, headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   eyebrow: { color: '#7d9bb3', fontSize: 10, fontWeight: '700', letterSpacing: 1.8 }, heading: { color: '#fff', fontSize: 29, fontWeight: '300', marginTop: 2, fontVariant: ['tabular-nums'] },
   elevationPill: { borderWidth: 1, borderColor: '#29465c', borderRadius: 14, paddingHorizontal: 11, paddingVertical: 7, alignItems: 'flex-end', backgroundColor: 'rgba(3,8,18,0.72)' }, elevationLabel: { color: '#7290a6', fontSize: 7, fontWeight: '700', letterSpacing: 1 }, elevationValue: { color: '#86efdf', fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] },
   menuButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, menuButtonText: { color: '#dcecf7', fontSize: 20 },
-  menuBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.22)' }, menu: { position: 'absolute', zIndex: 20, top: 72, right: 16, width: 270, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }, menuHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }, menuTitle: { color: '#fff', fontWeight: '700', fontSize: 17 }, menuClose: { color: '#a9becd', fontSize: 28, lineHeight: 28, paddingLeft: 16 }, menuRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuLabel: { color: '#d6e5ee', fontSize: 14 }, menuDivider: { height: 1, backgroundColor: '#213a4b', marginVertical: 9 }, menuCamera: { paddingVertical: 9 }, menuCameraText: { color: '#86efdf', fontWeight: '600' },
+  menuBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.22)' }, menu: { position: 'absolute', zIndex: 20, top: 72, right: 16, width: 290, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }, menuHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }, menuTitle: { color: '#fff', fontWeight: '700', fontSize: 17 }, menuClose: { color: '#a9becd', fontSize: 28, lineHeight: 28, paddingLeft: 16 }, searchInput: { height: 42, borderRadius: 11, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#0d2030', color: '#fff', paddingHorizontal: 12, fontSize: 14, marginBottom: 5 }, searchResults: { paddingTop: 3 }, searchResult: { minHeight: 45, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#213a4b' }, searchResultName: { color: '#eef7fc', fontSize: 14, flex: 1, paddingRight: 8 }, searchResultKind: { color: '#7895a9', fontSize: 10, textTransform: 'uppercase' }, searchEmpty: { color: '#7895a9', textAlign: 'center', paddingVertical: 22 }, menuRow: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuLabel: { color: '#d6e5ee', fontSize: 14 }, menuDivider: { height: 1, backgroundColor: '#213a4b', marginVertical: 9 }, menuCamera: { paddingVertical: 9 }, menuCameraText: { color: '#86efdf', fontWeight: '600' },
   sky: { flex: 1, overflow: 'hidden' }, gestureSurface: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, centerMessage: { position: 'absolute', top: '40%', left: 30, right: 30, alignItems: 'center', padding: 20, borderRadius: 18, backgroundColor: 'rgba(3,8,18,0.82)' }, centerTitle: { color: '#fff', fontSize: 18, fontWeight: '600' }, centerCopy: { color: '#9bb1c3', textAlign: 'center', marginTop: 6, lineHeight: 19 },
   timeButton: { position: 'absolute', left: 14, top: 14, minWidth: 72, height: 40, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, timeButtonActive: { borderColor: '#d9b35f', backgroundColor: 'rgba(65,48,17,0.9)' }, timeButtonLabel: { color: '#e8f2f8', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
   timePanel: { position: 'absolute', zIndex: 8, top: 62, left: 14, width: 282, padding: 15, borderRadius: 17, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } }, timeHeadingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }, timeTitle: { color: '#fff', fontSize: 16, fontWeight: '700' }, timeDate: { color: '#d9b35f', fontSize: 13, fontWeight: '600', marginTop: 3 }, timeClose: { color: '#a9becd', fontSize: 27, lineHeight: 27, paddingLeft: 14 }, timeSteps: { flexDirection: 'row', gap: 6, marginTop: 14 }, timeStep: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#183247', borderWidth: 1, borderColor: '#31546b' }, timeStepDisabled: { opacity: 0.35 }, timeStepText: { color: '#eef8ff', fontSize: 12, fontWeight: '700' }, nowButton: { alignItems: 'center', paddingTop: 13, paddingBottom: 2 }, nowButtonText: { color: '#86efdf', fontSize: 13, fontWeight: '700' },
   zoomControls: { position: 'absolute', right: 14, top: 14, alignItems: 'center', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.78)' }, zoomButton: { width: 42, height: 40, alignItems: 'center', justifyContent: 'center' }, zoomText: { color: '#fff', fontSize: 25, fontWeight: '300' }, zoomValue: { color: '#86a0b4', fontSize: 10, fontVariant: ['tabular-nums'] },
   resumeButton: { position: 'absolute', top: 16, alignSelf: 'center', paddingHorizontal: 17, paddingVertical: 10, borderRadius: 22, backgroundColor: '#17665f', borderWidth: 1, borderColor: '#86efdf' }, resumeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  bottomPanel: { paddingHorizontal: 18, paddingTop: 7, paddingBottom: 12 }, hint: { color: '#9bb1c3', textAlign: 'center', fontSize: 13, marginBottom: 4 }, calibration: { color: '#efc87a', textAlign: 'center', fontSize: 11, marginTop: 5 }, objectCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(3,8,18,0.94)', borderWidth: 1, borderColor: '#31546b', borderRadius: 17, padding: 10, overflow: 'hidden' }, objectImage: { width: 88, height: 88, borderRadius: 11, marginRight: 12, backgroundColor: '#0d1b29' }, objectCopy: { flex: 1, paddingRight: 4 }, objectKind: { color: '#86efdf', fontSize: 9, fontWeight: '800', letterSpacing: 1.2, marginBottom: 3 }, objectName: { color: '#fff', fontSize: 17, fontWeight: '600' }, objectMeta: { color: '#86a0b4', fontSize: 12, marginTop: 4, textTransform: 'capitalize' }, close: { color: '#86a0b4', fontSize: 27, paddingHorizontal: 7, alignSelf: 'flex-start' },
+  bottomPanel: { paddingHorizontal: 18, paddingTop: 7, paddingBottom: 12 }, hint: { color: '#9bb1c3', textAlign: 'center', fontSize: 13, marginBottom: 4 }, calibration: { color: '#efc87a', textAlign: 'center', fontSize: 11, marginTop: 5 }, objectCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(3,8,18,0.94)', borderWidth: 1, borderColor: '#31546b', borderRadius: 17, padding: 10, overflow: 'hidden' }, objectImage: { width: 88, height: 88, borderRadius: 11, marginRight: 12, backgroundColor: '#0d1b29' }, constellationPreview: { width: 96, height: 96, borderRadius: 11, marginRight: 12, padding: 5, backgroundColor: '#0d1b29' }, objectCopy: { flex: 1, paddingRight: 4 }, objectKind: { color: '#86efdf', fontSize: 9, fontWeight: '800', letterSpacing: 1.2, marginBottom: 3 }, objectName: { color: '#fff', fontSize: 17, fontWeight: '600' }, objectMeta: { color: '#86a0b4', fontSize: 12, marginTop: 4, textTransform: 'capitalize' }, close: { color: '#86a0b4', fontSize: 27, paddingHorizontal: 7, alignSelf: 'flex-start' },
 });

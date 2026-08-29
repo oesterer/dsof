@@ -1,4 +1,5 @@
 resume
+buildMobile.sh
 
 # Node build artifacts
 node_modules/
