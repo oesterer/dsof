@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
 import { DeviceMotion } from 'expo-sensors';
 
 export type SensorState = { heading: number; elevation: number; latitude: number | null; longitude: number | null; headingAccuracy: number; ready: boolean; error: string | null };
 
+const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
+const headingDistance = (first: number, second: number) => Math.abs(((first - second + 540) % 360) - 180);
+
 export function useSkySensors(): SensorState {
   const [state, setState] = useState<SensorState>({ heading: 0, elevation: 25, latitude: null, longitude: null, headingAccuracy: 0, ready: false, error: null });
+  const lastHeading = useRef<number | null>(null);
+  const currentElevation = useRef(25);
 
   useEffect(() => {
     let active = true;
@@ -20,7 +25,23 @@ export function useSkySensors(): SensorState {
         if (!active) return;
         setState((previous) => ({ ...previous, latitude: location.coords.latitude, longitude: location.coords.longitude }));
         headingSubscription = await Location.watchHeadingAsync((measurement) => {
-          const heading = measurement.trueHeading >= 0 ? measurement.trueHeading : measurement.magHeading;
+          const rawHeading = normalizeHeading(measurement.trueHeading >= 0 ? measurement.trueHeading : measurement.magHeading);
+          let heading = rawHeading;
+          if (lastHeading.current !== null && currentElevation.current >= 35) {
+            // Core Location can report the opposite compass solution when a
+            // portrait phone is steeply tilted. Select the solution continuous
+            // with the preceding reading. At zenith azimuth is undefined, so
+            // retain the last useful heading until the phone tilts back down.
+            if (currentElevation.current >= 88) {
+              heading = lastHeading.current;
+            } else {
+              const oppositeHeading = normalizeHeading(rawHeading + 180);
+              heading = headingDistance(oppositeHeading, lastHeading.current) < headingDistance(rawHeading, lastHeading.current)
+                ? oppositeHeading
+                : rawHeading;
+            }
+          }
+          lastHeading.current = heading;
           setState((previous) => ({ ...previous, heading, headingAccuracy: measurement.accuracy, ready: previous.latitude !== null }));
         });
         DeviceMotion.setUpdateInterval(80);
@@ -37,7 +58,9 @@ export function useSkySensors(): SensorState {
             elevation = 90 - measurement.rotation.beta * 180 / Math.PI;
           }
           if (elevation === null || !Number.isFinite(elevation)) return;
-          setState((previous) => ({ ...previous, elevation: Math.max(-10, Math.min(90, elevation)) }));
+          const clampedElevation = Math.max(-10, Math.min(90, elevation));
+          currentElevation.current = clampedElevation;
+          setState((previous) => ({ ...previous, elevation: clampedElevation }));
         });
       } catch (error) {
         if (active) setState((previous) => ({ ...previous, error: error instanceof Error ? error.message : 'Unable to start sky sensors.' }));
