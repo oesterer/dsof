@@ -215,6 +215,33 @@ button:hover {
   z-index: 10;
 }
 
+#sky-tooltip.visible {
+  pointer-events: auto;
+}
+
+#sky-tooltip .tooltip-close {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(3, 9, 22, 0.82);
+  color: #dcecff;
+  font-size: 1.35rem;
+  font-weight: 400;
+  line-height: 1;
+  z-index: 2;
+}
+
+#sky-tooltip .tooltip-close:hover {
+  color: #86efdf;
+}
+
 #sky-tooltip .tooltip-text {
   line-height: 1.35;
 }
@@ -234,6 +261,13 @@ button:hover {
   border-radius: 8px;
   background: rgba(3, 9, 22, 0.88);
   border: 1px solid rgba(118, 229, 210, 0.28);
+}
+
+#sky-tooltip .wikipedia-link {
+  color: #86efdf;
+  font-weight: 700;
+  text-decoration: underline;
+  align-self: flex-start;
 }
 
 #feedback {

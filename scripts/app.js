@@ -50,6 +50,7 @@ const PITCH_SENSITIVITY = 0.0045;
 const PITCH_MIN = -Math.PI + 0.01;
 const PITCH_MAX = Math.PI - 0.01;
 const OBLIQUITY_RAD = (23.4367 * Math.PI) / 180;
+const CONSTELLATION_NAMES = new Map(CONSTELLATIONS.map((constellation) => [constellation.abbreviation, constellation.name]));
 
 let interactiveItems = [];
 let isRotating = false;
@@ -411,6 +412,9 @@ function formatStarTooltip(item) {
 
   const heading = alternate.length > 0 ? `${item.displayName} (${alternate.join(', ')})` : item.displayName;
   const details = [];
+  if (item.constellation) {
+    details.push(`Constellation: ${CONSTELLATION_NAMES.get(item.constellation) || item.constellation}`);
+  }
   if (Number.isFinite(item.magnitude)) {
     details.push(`mag ${item.magnitude.toFixed(2)}`);
   }
@@ -419,6 +423,17 @@ function formatStarTooltip(item) {
   }
 
   return details.length > 0 ? `${heading} • ${details.join(' • ')}` : heading;
+}
+
+function starWikipediaTitle(item) {
+  const name = item?.properName || item?.displayName;
+  if (!name
+    || /^HR \d+$/.test(name)
+    || /^\d/.test(name)
+    || /^(Alpha|Beta|Gamma|Delta|Epsilon|Zeta|Eta|Theta|Iota|Kappa|Lambda|Mu|Nu|Xi|Omicron|Pi|Rho|Sigma|Tau|Upsilon|Phi|Chi|Psi|Omega)(\s+\d+)?\s/.test(name)
+    || /^Omi(?:\s|$)/.test(name)
+    || /^[A-Za-z]{2,3}\d/i.test(name)) return null;
+  return name;
 }
 
 const state = {
@@ -1452,6 +1467,14 @@ function buildConstellationOutlineSvg(constellation) {
   return `<svg class="constellation-outline" viewBox="0 0 160 160" role="img" aria-label="${escapeHtml(constellation.name)} outline">${polylines}${stars}</svg>`;
 }
 
+function buildWikipediaLink(title) {
+  if (!title) {
+    return '';
+  }
+  const page = encodeURIComponent(String(title).replace(/ /g, '_'));
+  return `<a class="wikipedia-link" href="https://en.wikipedia.org/wiki/${page}" target="_blank" rel="noopener noreferrer">Wikipedia ↗</a>`;
+}
+
 function describeInteractiveItem(item) {
   if (!item) {
     return null;
@@ -1460,7 +1483,7 @@ function describeInteractiveItem(item) {
   if (item.kind === 'star') {
     const text = formatStarTooltip(item);
     return {
-      html: `<div class="tooltip-text">${escapeHtml(text)}</div>`,
+      html: `<div class="tooltip-text">${escapeHtml(text)}</div>${buildWikipediaLink(starWikipediaTitle(item))}`,
       ariaLabel: text,
     };
   }
@@ -1469,7 +1492,7 @@ function describeInteractiveItem(item) {
     const story = getConstellationInfo(item.displayName);
     const outline = buildConstellationOutlineSvg(item.constellation);
     return {
-      html: `${outline}<div class="tooltip-text"><strong>${escapeHtml(item.displayName)}</strong><br>${escapeHtml(story)}</div>`,
+      html: `${outline}<div class="tooltip-text"><strong>${escapeHtml(item.displayName)}</strong><br>${escapeHtml(story)}</div>${buildWikipediaLink(`${item.displayName} (constellation)`)}`,
       ariaLabel: `${item.displayName}. ${story}`,
     };
   }
@@ -1487,6 +1510,7 @@ function describeInteractiveItem(item) {
         `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
       );
     }
+    htmlParts.push(buildWikipediaLink(`Messier ${item.designation.replace(/^M/i, '')}`));
     return {
       html: htmlParts.join(''),
       ariaLabel: text,
@@ -1503,6 +1527,7 @@ function describeInteractiveItem(item) {
         `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
       );
     }
+    htmlParts.push(buildWikipediaLink(item.displayName));
     return {
       html: htmlParts.join(''),
       ariaLabel: text,
@@ -1519,6 +1544,7 @@ function describeInteractiveItem(item) {
         `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
       );
     }
+    htmlParts.push(buildWikipediaLink('Sun'));
     return {
       html: htmlParts.join(''),
       ariaLabel: text,
@@ -1538,6 +1564,7 @@ function describeInteractiveItem(item) {
         `<img src="${imageUrl}" alt="${escapeHtml(alt)}" width="256" height="256" referrerpolicy="no-referrer" onerror="this.style.display='none'" />`
       );
     }
+    htmlParts.push(buildWikipediaLink('Moon'));
     return {
       html: htmlParts.join(''),
       ariaLabel: text,
@@ -1552,6 +1579,7 @@ function hideTooltip() {
     return;
   }
   tooltip.style.opacity = 0;
+  tooltip.classList.remove('visible');
   tooltip.innerHTML = '';
   tooltip.removeAttribute('aria-label');
 }
@@ -1561,7 +1589,8 @@ function showTooltip(content, clientX, clientY) {
     return;
   }
 
-  tooltip.innerHTML = content.html || '';
+  tooltip.innerHTML = `<button type="button" class="tooltip-close" aria-label="Close object information">×</button>${content.html || ''}`;
+  tooltip.querySelector('.tooltip-close')?.addEventListener('click', hideTooltip);
   if (content.ariaLabel) {
     tooltip.setAttribute('aria-label', content.ariaLabel);
   } else {
@@ -1573,6 +1602,7 @@ function showTooltip(content, clientX, clientY) {
   tooltip.style.left = `${localX}px`;
   tooltip.style.top = `${localY}px`;
   tooltip.style.opacity = 1;
+  tooltip.classList.add('visible');
 }
 
 function handleCanvasMove(event) {
@@ -1612,7 +1642,10 @@ function handleCanvasMove(event) {
   hideTooltip();
 }
 
-function handleCanvasLeave() {
+function handleCanvasLeave(event) {
+  if (event.relatedTarget instanceof Node && tooltip?.contains(event.relatedTarget)) {
+    return;
+  }
   hideTooltip();
 }
 
@@ -1666,6 +1699,8 @@ function handleCanvasTap(event) {
   const description = describeInteractiveItem(bestItem);
   if (description) {
     showTooltip(description, event.clientX, event.clientY);
+  } else {
+    hideTooltip();
   }
 }
 
@@ -2020,6 +2055,7 @@ function renderSky() {
         bayerDesignation: formatBayerDesignation(star),
         flamsteedDesignation: formatFlamsteedDesignation(star),
         magnitude: star.mag,
+        constellation: star.constellation,
         altitudeDeg,
         hr: star.hr,
         x: renderedStar.x,
@@ -2448,8 +2484,6 @@ try {
   setControlsCollapsed(false);
 }
 
-canvas.addEventListener('mousemove', handleCanvasMove);
-canvas.addEventListener('mouseleave', handleCanvasLeave);
 canvas.addEventListener('pointerdown', handleCanvasPointerDown);
 canvas.addEventListener('pointermove', handleCanvasPointerMove);
 canvas.addEventListener('pointerup', handleCanvasPointerUp);
