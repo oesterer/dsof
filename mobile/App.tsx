@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Image, LayoutChangeEvent, PanResponder, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
-import Svg, { Circle, Line, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { BRIGHT_STARS } from './src/data/brightStars';
 import { CONSTELLATIONS } from './src/data/constellations';
 import { MESSIER_OBJECTS } from './src/data/messier';
@@ -49,6 +49,7 @@ export default function App() {
   const [timeOffsetMinutes, setTimeOffsetMinutes] = useState(0);
   const [timeOpen, setTimeOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [tracking, setTracking] = useState(true);
   const [view, setView] = useState({ heading: 0, elevation: 25 });
@@ -62,13 +63,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (tracking) {
+    if (tracking && !menuOpen) {
       setView((current) => {
         if (Math.abs(current.heading - sensors.heading) < 0.01 && Math.abs(current.elevation - sensors.elevation) < 0.01) return current;
         return { heading: sensors.heading, elevation: sensors.elevation };
       });
     }
-  }, [tracking, sensors.heading, sensors.elevation]);
+  }, [tracking, menuOpen, sensors.heading, sensors.elevation]);
 
   function updateViewport(event: LayoutChangeEvent) {
     const { width, height } = event.nativeEvent.layout;
@@ -361,23 +362,23 @@ export default function App() {
       <View style={[StyleSheet.absoluteFill, !cameraMode && styles.nightBackground]} />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <View>
+          <View style={styles.orientationPill}>
             <Text style={styles.eyebrow}>{tracking ? 'LIVE ORIENTATION' : 'MANUAL VIEW'}</Text>
-            <Text style={styles.heading}>{Math.round(viewHeading)}° {direction}</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <View style={styles.elevationPill}>
-              <Text style={styles.elevationLabel}>ELEVATION</Text>
-              <Text style={styles.elevationValue}>{Math.round(viewElevation)}°</Text>
+            <View style={styles.orientationValues}>
+              <Text style={styles.heading}>{Math.round(viewHeading)}° {direction}</Text>
+              <View style={styles.orientationDivider} />
+              <View style={styles.elevationReadout}>
+                <Text style={styles.elevationLabel}>ELEV</Text>
+                <Text style={styles.elevationValue}>{Math.round(viewElevation)}°</Text>
+              </View>
             </View>
-            <Pressable accessibilityLabel="Display options" style={styles.menuButton} onPress={() => { setTimeOpen(false); setMenuOpen((open) => !open); }}>
-              <Text style={styles.menuButtonText}>☰</Text>
-            </Pressable>
           </View>
+          <Pressable accessibilityLabel="Display options" style={styles.menuButton} onPress={() => { setTimeOpen(false); setMenuOpen((open) => !open); }}>
+            <Text style={styles.menuButtonText}>☰</Text>
+          </Pressable>
         </View>
 
-        {menuOpen ? <Pressable accessibilityLabel="Close display menu" style={styles.menuBackdrop} onPress={() => setMenuOpen(false)} /> : null}
-        {menuOpen ? <View style={styles.menu}>
+        {menuOpen ? <ScrollView style={styles.menu} contentContainerStyle={styles.menuContent} keyboardShouldPersistTaps="handled">
           <View style={styles.menuHeadingRow}>
             <Text style={styles.menuTitle}>Sky menu</Text>
             <Pressable accessibilityLabel="Close menu" hitSlop={10} onPress={() => setMenuOpen(false)}><Text style={styles.menuClose}>×</Text></Pressable>
@@ -386,19 +387,23 @@ export default function App() {
           {searchQuery.trim() ? <View style={styles.searchResults}>
             {searchResults.length ? searchResults.map((entry) => <Pressable key={`${entry.kind}-${entry.id}`} style={styles.searchResult} onPress={() => centerSearchResult(entry)}><Text style={styles.searchResultName}>{entry.name}</Text><Text style={styles.searchResultKind}>{entry.kind === 'deepSky' ? 'deep sky' : entry.kind}</Text></Pressable>) : <Text style={styles.searchEmpty}>No matching object</Text>}
           </View> : <>
-          <MenuSwitch label="Stars" value={display.stars} onChange={(value) => changeDisplay('stars', value)} />
-          <MenuSwitch label="Planets, Moon & Sun" value={display.planets} onChange={(value) => changeDisplay('planets', value)} />
-          <MenuSwitch label="Deep-sky objects" value={display.deepSky} onChange={(value) => changeDisplay('deepSky', value)} />
-          <MenuSwitch label="Constellation lines" value={display.constellations} onChange={(value) => changeDisplay('constellations', value)} />
-          <MenuSwitch label="Constellation names" value={display.constellationLabels} onChange={(value) => changeDisplay('constellationLabels', value)} />
-          <MenuSwitch label="RA / Dec grid" value={display.grid} onChange={(value) => changeDisplay('grid', value)} />
-          <MenuSwitch label="Horizon" value={display.horizon} onChange={(value) => changeDisplay('horizon', value)} />
-          <MenuSwitch label="Ecliptic" value={display.ecliptic} onChange={(value) => changeDisplay('ecliptic', value)} />
-          <MenuSwitch label="Aiming reticle" value={display.reticle} onChange={(value) => changeDisplay('reticle', value)} />
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: displayOptionsOpen }} style={styles.submenuButton} onPress={() => setDisplayOptionsOpen((open) => !open)}>
+            <Text style={styles.submenuTitle}>Display Options</Text>
+            <Text style={styles.submenuChevron}>{displayOptionsOpen ? '⌃' : '⌄'}</Text>
+          </Pressable>
+          {displayOptionsOpen ? <View style={styles.displayOptions}>
+            <MenuSwitch label="Stars" value={display.stars} onChange={(value) => changeDisplay('stars', value)} />
+            <MenuSwitch label="Planets, Moon & Sun" value={display.planets} onChange={(value) => changeDisplay('planets', value)} />
+            <MenuSwitch label="Deep-sky objects" value={display.deepSky} onChange={(value) => changeDisplay('deepSky', value)} />
+            <MenuSwitch label="Constellation lines" value={display.constellations} onChange={(value) => changeDisplay('constellations', value)} />
+            <MenuSwitch label="Constellation names" value={display.constellationLabels} onChange={(value) => changeDisplay('constellationLabels', value)} />
+            <MenuSwitch label="RA / Dec grid" value={display.grid} onChange={(value) => changeDisplay('grid', value)} />
+            <MenuSwitch label="Horizon" value={display.horizon} onChange={(value) => changeDisplay('horizon', value)} />
+            <MenuSwitch label="Ecliptic" value={display.ecliptic} onChange={(value) => changeDisplay('ecliptic', value)} />
+            <MenuSwitch label="Aiming reticle" value={display.reticle} onChange={(value) => changeDisplay('reticle', value)} />
+          </View> : null}
           </>}
-          <View style={styles.menuDivider} />
-          <Pressable style={styles.menuCamera} onPress={toggleCamera}><Text style={styles.menuCameraText}>{cameraMode ? 'Disable camera view' : 'Enable camera view'}</Text></Pressable>
-        </View> : null}
+        </ScrollView> : null}
 
         <View style={styles.sky} onLayout={updateViewport}>
           <Svg width="100%" height="100%">
@@ -433,6 +438,9 @@ export default function App() {
           </Svg>
           <View accessibilityLabel="Interactive sky map" style={styles.gestureSurface} {...panResponder.panHandlers} />
           {!sensors.ready ? <View style={styles.centerMessage}><Text style={styles.centerTitle}>{sensors.error ? 'Sensors unavailable' : 'Finding your sky…'}</Text><Text style={styles.centerCopy}>{sensors.error || 'Allow location and motion access when prompted.'}</Text></View> : null}
+          <Pressable accessibilityLabel={cameraMode ? 'Disable camera view' : 'Enable camera view'} accessibilityState={{ selected: cameraMode }} style={[styles.cameraButton, cameraMode && styles.cameraButtonActive]} onPress={toggleCamera}>
+            <ApertureIcon active={cameraMode} />
+          </Pressable>
           <Pressable style={[styles.timeButton, timeOffsetMinutes > 0 && styles.timeButtonActive]} onPress={() => { setMenuOpen(false); setTimeOpen((open) => !open); }}>
             <Text style={styles.timeButtonLabel}>◷ {timeOffsetLabel}</Text>
           </Pressable>
@@ -451,7 +459,7 @@ export default function App() {
             <Text style={styles.zoomValue}>{zoom.toFixed(1)}×</Text>
             <Pressable style={styles.zoomButton} onPress={() => setZoom((value) => clamp(value / 1.35, 1, 6))}><Text style={styles.zoomText}>−</Text></Pressable>
           </View>
-          {!tracking ? <Pressable style={styles.resumeButton} onPress={() => { setView({ heading: sensors.heading, elevation: sensors.elevation }); setTracking(true); }}><Text style={styles.resumeText}>⌁ Resume live</Text></Pressable> : null}
+          {!tracking ? <Pressable style={styles.resumeButton} onPress={() => { setView({ heading: sensors.heading, elevation: sensors.elevation }); setTracking(true); }}><Text style={styles.resumeText}>Resume tracking</Text></Pressable> : null}
         </View>
 
         <View style={styles.bottomPanel}>
@@ -460,7 +468,7 @@ export default function App() {
             {selectedConstellation ? <ConstellationPreview constellation={selectedConstellation} /> : null}
             <View style={styles.objectCopy}><Text style={styles.objectKind}>{selected.kind === 'deepSky' ? 'DEEP-SKY OBJECT' : selected.kind === 'planet' ? 'SOLAR SYSTEM' : selected.kind === 'constellation' ? 'CONSTELLATION' : 'STAR'}</Text><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text></View>
             <Pressable onPress={() => setSelected(null)}><Text style={styles.close}>×</Text></Pressable>
-          </View> : <Text style={styles.hint}>{tracking ? 'Aim your phone. Pinch to zoom or drag to explore.' : 'Manual view active. Tap Resume live to follow your phone.'}</Text>}
+          </View> : <Text style={styles.hint}>{tracking ? 'Aim your phone. Pinch to zoom or drag to explore.' : 'Manual view active. Tap Resume tracking to follow your phone.'}</Text>}
           {sensors.headingAccuracy < 2 && sensors.ready && tracking ? <Text style={styles.calibration}>Move the phone in a figure eight to calibrate the compass.</Text> : null}
         </View>
       </SafeAreaView>
@@ -470,6 +478,14 @@ export default function App() {
 
 function MenuSwitch({ label, value, onChange }: { label: string; value: boolean; onChange(value: boolean): void }) {
   return <View style={styles.menuRow}><Text style={styles.menuLabel}>{label}</Text><Switch value={value} onValueChange={onChange} trackColor={{ false: '#243c4d', true: '#2b766f' }} thumbColor={value ? '#86efdf' : '#91a4b2'} /></View>;
+}
+
+function ApertureIcon({ active }: { active: boolean }) {
+  const color = active ? '#071526' : '#dcecf7';
+  return <Svg width={25} height={25} viewBox="0 0 24 24">
+    <Circle cx={12} cy={12} r={9} fill="none" stroke={color} strokeWidth={1.7} />
+    <Path d="M14.3 8h6.1M9.7 8l3.1-5.3M7.4 12 4.3 6.7M9.7 16H3.6M14.3 16l-3.1 5.3M16.6 12l3.1 5.3" fill="none" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>;
 }
 
 function TimeStep({ label, onPress, disabled = false }: { label: string; onPress(): void; disabled?: boolean }) {
@@ -520,14 +536,16 @@ function ConstellationPreview({ constellation }: { constellation: Constellation 
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: '#030812' }, nightBackground: { backgroundColor: '#071526' }, safeArea: { flex: 1, paddingTop: NativeStatusBar.currentHeight || 0 },
-  header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 5 }, headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  eyebrow: { color: '#7d9bb3', fontSize: 10, fontWeight: '700', letterSpacing: 1.8 }, heading: { color: '#fff', fontSize: 29, fontWeight: '300', marginTop: 2, fontVariant: ['tabular-nums'] },
-  elevationPill: { borderWidth: 1, borderColor: '#29465c', borderRadius: 14, paddingHorizontal: 11, paddingVertical: 7, alignItems: 'flex-end', backgroundColor: 'rgba(3,8,18,0.72)' }, elevationLabel: { color: '#7290a6', fontSize: 7, fontWeight: '700', letterSpacing: 1 }, elevationValue: { color: '#86efdf', fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 5 },
+  orientationPill: { minWidth: 190, borderWidth: 1, borderColor: '#29465c', borderRadius: 16, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: 'rgba(3,8,18,0.78)' }, orientationValues: { flexDirection: 'row', alignItems: 'center', marginTop: 1 }, orientationDivider: { width: 1, height: 25, marginHorizontal: 11, backgroundColor: '#29465c' }, elevationReadout: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
+  eyebrow: { color: '#7d9bb3', fontSize: 8, fontWeight: '700', letterSpacing: 1.5 }, heading: { color: '#fff', fontSize: 24, fontWeight: '300', fontVariant: ['tabular-nums'] },
+  elevationLabel: { color: '#7290a6', fontSize: 7, fontWeight: '700', letterSpacing: 0.8 }, elevationValue: { color: '#86efdf', fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] },
   menuButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, menuButtonText: { color: '#dcecf7', fontSize: 20 },
-  menuBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.22)' }, menu: { position: 'absolute', zIndex: 20, top: 72, right: 16, width: 290, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } }, menuHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }, menuTitle: { color: '#fff', fontWeight: '700', fontSize: 17 }, menuClose: { color: '#a9becd', fontSize: 28, lineHeight: 28, paddingLeft: 16 }, searchInput: { height: 42, borderRadius: 11, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#0d2030', color: '#fff', paddingHorizontal: 12, fontSize: 14, marginBottom: 5 }, searchResults: { paddingTop: 3 }, searchResult: { minHeight: 45, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#213a4b' }, searchResultName: { color: '#eef7fc', fontSize: 14, flex: 1, paddingRight: 8 }, searchResultKind: { color: '#7895a9', fontSize: 10, textTransform: 'uppercase' }, searchEmpty: { color: '#7895a9', textAlign: 'center', paddingVertical: 22 }, menuRow: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuLabel: { color: '#d6e5ee', fontSize: 14 }, menuDivider: { height: 1, backgroundColor: '#213a4b', marginVertical: 9 }, menuCamera: { paddingVertical: 9 }, menuCameraText: { color: '#86efdf', fontWeight: '600' },
+  menu: { position: 'absolute', zIndex: 20, top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#091725' }, menuContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24 }, menuHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }, menuTitle: { color: '#fff', fontWeight: '700', fontSize: 21 }, menuClose: { color: '#a9becd', fontSize: 32, lineHeight: 32, paddingLeft: 16 }, searchInput: { height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#0d2030', color: '#fff', paddingHorizontal: 13, fontSize: 15, marginBottom: 12 }, searchResults: { paddingTop: 3 }, searchResult: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#213a4b' }, searchResultName: { color: '#eef7fc', fontSize: 14, flex: 1, paddingRight: 8 }, searchResultKind: { color: '#7895a9', fontSize: 10, textTransform: 'uppercase' }, searchEmpty: { color: '#7895a9', textAlign: 'center', paddingVertical: 22 }, submenuButton: { minHeight: 52, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#31546b', borderRadius: 13, backgroundColor: '#0d2030' }, submenuTitle: { color: '#eef7fc', fontSize: 16, fontWeight: '700' }, submenuChevron: { color: '#86efdf', fontSize: 21 }, displayOptions: { marginTop: 8, paddingHorizontal: 14, paddingVertical: 4, borderWidth: 1, borderColor: '#213a4b', borderRadius: 13, backgroundColor: 'rgba(13,32,48,0.58)' }, menuRow: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuLabel: { color: '#d6e5ee', fontSize: 14 },
   sky: { flex: 1, overflow: 'hidden' }, gestureSurface: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, centerMessage: { position: 'absolute', top: '40%', left: 30, right: 30, alignItems: 'center', padding: 20, borderRadius: 18, backgroundColor: 'rgba(3,8,18,0.82)' }, centerTitle: { color: '#fff', fontSize: 18, fontWeight: '600' }, centerCopy: { color: '#9bb1c3', textAlign: 'center', marginTop: 6, lineHeight: 19 },
-  timeButton: { position: 'absolute', left: 14, top: 14, minWidth: 72, height: 40, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, timeButtonActive: { borderColor: '#d9b35f', backgroundColor: 'rgba(65,48,17,0.9)' }, timeButtonLabel: { color: '#e8f2f8', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  timePanel: { position: 'absolute', zIndex: 8, top: 62, left: 14, width: 282, padding: 15, borderRadius: 17, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } }, timeHeadingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }, timeTitle: { color: '#fff', fontSize: 16, fontWeight: '700' }, timeDate: { color: '#d9b35f', fontSize: 13, fontWeight: '600', marginTop: 3 }, timeClose: { color: '#a9becd', fontSize: 27, lineHeight: 27, paddingLeft: 14 }, timeSteps: { flexDirection: 'row', gap: 6, marginTop: 14 }, timeStep: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#183247', borderWidth: 1, borderColor: '#31546b' }, timeStepDisabled: { opacity: 0.35 }, timeStepText: { color: '#eef8ff', fontSize: 12, fontWeight: '700' }, nowButton: { alignItems: 'center', paddingTop: 13, paddingBottom: 2 }, nowButtonText: { color: '#86efdf', fontSize: 13, fontWeight: '700' },
+  cameraButton: { position: 'absolute', left: 14, bottom: 14, width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 23, borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, cameraButtonActive: { borderColor: '#86efdf', backgroundColor: '#86efdf' },
+  timeButton: { position: 'absolute', right: 14, bottom: 14, minWidth: 72, height: 40, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, timeButtonActive: { borderColor: '#d9b35f', backgroundColor: 'rgba(65,48,17,0.9)' }, timeButtonLabel: { color: '#e8f2f8', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  timePanel: { position: 'absolute', zIndex: 8, right: 14, bottom: 62, width: 282, padding: 15, borderRadius: 17, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#091725', shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 7 } }, timeHeadingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }, timeTitle: { color: '#fff', fontSize: 16, fontWeight: '700' }, timeDate: { color: '#d9b35f', fontSize: 13, fontWeight: '600', marginTop: 3 }, timeClose: { color: '#a9becd', fontSize: 27, lineHeight: 27, paddingLeft: 14 }, timeSteps: { flexDirection: 'row', gap: 6, marginTop: 14 }, timeStep: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, backgroundColor: '#183247', borderWidth: 1, borderColor: '#31546b' }, timeStepDisabled: { opacity: 0.35 }, timeStepText: { color: '#eef8ff', fontSize: 12, fontWeight: '700' }, nowButton: { alignItems: 'center', paddingTop: 13, paddingBottom: 2 }, nowButtonText: { color: '#86efdf', fontSize: 13, fontWeight: '700' },
   zoomControls: { position: 'absolute', right: 14, top: 14, alignItems: 'center', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.78)' }, zoomButton: { width: 42, height: 40, alignItems: 'center', justifyContent: 'center' }, zoomText: { color: '#fff', fontSize: 25, fontWeight: '300' }, zoomValue: { color: '#86a0b4', fontSize: 10, fontVariant: ['tabular-nums'] },
   resumeButton: { position: 'absolute', top: 16, alignSelf: 'center', paddingHorizontal: 17, paddingVertical: 10, borderRadius: 22, backgroundColor: '#17665f', borderWidth: 1, borderColor: '#86efdf' }, resumeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   bottomPanel: { paddingHorizontal: 18, paddingTop: 7, paddingBottom: 12 }, hint: { color: '#9bb1c3', textAlign: 'center', fontSize: 13, marginBottom: 4 }, calibration: { color: '#efc87a', textAlign: 'center', fontSize: 11, marginTop: 5 }, objectCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(3,8,18,0.94)', borderWidth: 1, borderColor: '#31546b', borderRadius: 17, padding: 10, overflow: 'hidden' }, objectImage: { width: 88, height: 88, borderRadius: 11, marginRight: 12, backgroundColor: '#0d1b29' }, constellationPreview: { width: 96, height: 96, borderRadius: 11, marginRight: 12, padding: 5, backgroundColor: '#0d1b29' }, objectCopy: { flex: 1, paddingRight: 4 }, objectKind: { color: '#86efdf', fontSize: 9, fontWeight: '800', letterSpacing: 1.2, marginBottom: 3 }, objectName: { color: '#fff', fontSize: 17, fontWeight: '600' }, objectMeta: { color: '#86a0b4', fontSize: 12, marginTop: 4, textTransform: 'capitalize' }, close: { color: '#86a0b4', fontSize: 27, paddingHorizontal: 7, alignSelf: 'flex-start' },

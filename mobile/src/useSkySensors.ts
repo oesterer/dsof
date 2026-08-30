@@ -6,11 +6,14 @@ export type SensorState = { heading: number; elevation: number; latitude: number
 
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
 const headingDistance = (first: number, second: number) => Math.abs(((first - second + 540) % 360) - 180);
+const ELEVATION_DEADBAND = 0.18;
 
 export function useSkySensors(): SensorState {
   const [state, setState] = useState<SensorState>({ heading: 0, elevation: 25, latitude: null, longitude: null, headingAccuracy: 0, ready: false, error: null });
   const lastHeading = useRef<number | null>(null);
   const currentElevation = useRef(25);
+  const filteredElevation = useRef<number | null>(null);
+  const publishedElevation = useRef(25);
 
   useEffect(() => {
     let active = true;
@@ -58,9 +61,22 @@ export function useSkySensors(): SensorState {
             elevation = 90 - measurement.rotation.beta * 180 / Math.PI;
           }
           if (elevation === null || !Number.isFinite(elevation)) return;
-          const clampedElevation = Math.max(-10, Math.min(90, elevation));
-          currentElevation.current = clampedElevation;
-          setState((previous) => ({ ...previous, elevation: clampedElevation }));
+          const rawElevation = Math.max(-10, Math.min(90, elevation));
+          const previousFiltered = filteredElevation.current;
+          if (previousFiltered === null) {
+            filteredElevation.current = rawElevation;
+          } else {
+            const sensorDelta = rawElevation - previousFiltered;
+            // Suppress gravity-sensor jitter while stationary, but increase
+            // responsiveness as soon as the phone is deliberately tilted.
+            const alpha = Math.abs(sensorDelta) > 6 ? 0.55 : Math.abs(sensorDelta) > 2 ? 0.3 : 0.12;
+            filteredElevation.current = previousFiltered + sensorDelta * alpha;
+          }
+          const smoothedElevation = filteredElevation.current;
+          currentElevation.current = smoothedElevation;
+          if (Math.abs(smoothedElevation - publishedElevation.current) < ELEVATION_DEADBAND) return;
+          publishedElevation.current = smoothedElevation;
+          setState((previous) => ({ ...previous, elevation: smoothedElevation }));
         });
       } catch (error) {
         if (active) setState((previous) => ({ ...previous, error: error instanceof Error ? error.message : 'Unable to start sky sensors.' }));
