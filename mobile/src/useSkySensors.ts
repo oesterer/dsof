@@ -7,6 +7,7 @@ export type SensorState = { heading: number; elevation: number; latitude: number
 
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
 const headingDistance = (first: number, second: number) => Math.abs(((first - second + 540) % 360) - 180);
+const signedHeadingDelta = (target: number, current: number) => ((target - current + 540) % 360) - 180;
 const ELEVATION_DEADBAND = 0.18;
 
 // Expo reports motion axes in the device's portrait coordinate system, while
@@ -82,10 +83,19 @@ export function useSkySensors(): SensorState {
                 : rawHeading;
             }
           }
+          const previousHeading = lastHeading.current;
+          if (previousHeading !== null) {
+            const delta = signedHeadingDelta(heading, previousHeading);
+            // Low-pass small compass jitter, but catch up quickly during an
+            // intentional turn. Using the signed shortest arc keeps 359° → 0°
+            // smooth instead of sending the map around the long way.
+            const alpha = Math.abs(delta) > 30 ? 0.65 : Math.abs(delta) > 10 ? 0.42 : Math.abs(delta) > 3 ? 0.26 : 0.14;
+            heading = normalizeHeading(previousHeading + delta * alpha);
+          }
           lastHeading.current = heading;
           setState((previous) => ({ ...previous, heading, headingAccuracy: measurement.accuracy, ready: previous.latitude !== null }));
         });
-        DeviceMotion.setUpdateInterval(80);
+        DeviceMotion.setUpdateInterval(40);
         motionSubscription = DeviceMotion.addListener((measurement) => {
           // DeviceMotion.orientation has proven unreliable on iPad in
           // landscape; use the actual interface orientation captured above.

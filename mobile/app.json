@@ -9,7 +9,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.oesterer.dsof",
-      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Your location places stars and planets correctly in the sky.",
         "NSCameraUsageDescription": "The camera helps you aim at and identify objects in the sky.",
