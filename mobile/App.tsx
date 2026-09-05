@@ -11,6 +11,7 @@ import { getConstellationInfo } from './src/data/constellationInfo';
 import { CatalogStar, ProjectedPoint, ProjectedStar, cardinalDirection, eclipticToEquatorial, equatorialToHorizontal, projectHorizontalPoint, projectStar, toHorizontal } from './src/astro';
 import { computeSolarSystem, SolarBody } from './src/solarSystem';
 import { useSkySensors } from './src/useSkySensors';
+import { trackEvent, trackSkyScreen } from './src/analytics';
 
 type Constellation = { name: string; abbreviation: string; lines: { raHours: number; decDeg: number }[][]; label?: { raHours: number; decDeg: number } };
 type DisplayOptions = { stars: boolean; constellations: boolean; constellationLabels: boolean; grid: boolean; horizon: boolean; ecliptic: boolean; planets: boolean; deepSky: boolean; reticle: boolean };
@@ -73,6 +74,10 @@ export default function App() {
   useEffect(() => {
     const timer = setInterval(() => setClockTime(new Date()), 60_000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    trackSkyScreen();
   }, []);
 
   useEffect(() => {
@@ -263,6 +268,7 @@ export default function App() {
     setSelected(null);
     setSearchQuery('');
     setMenuOpen(false);
+    trackEvent('search_result_selected', { object_type: entry.kind, object_id: entry.id });
   }
 
   function identifyAt(x: number, y: number) {
@@ -293,6 +299,7 @@ export default function App() {
       return !best || distance < best.distance ? { object, distance } : best;
     }, null);
     setSelected(nearest?.object || null);
+    if (nearest) trackEvent('object_selected', { object_type: nearest.object.kind, object_id: nearest.object.id });
   }
 
   const interaction = useRef({ menuOpen, timeOpen, viewHeading, viewElevation, zoom, fieldOfView, viewport, identifyAt });
@@ -344,7 +351,11 @@ export default function App() {
       }
     },
     onPanResponderRelease: (event) => {
-      if (!gesture.current.moved) interaction.current.identifyAt(event.nativeEvent.locationX, event.nativeEvent.locationY);
+      if (!gesture.current.moved) {
+        interaction.current.identifyAt(event.nativeEvent.locationX, event.nativeEvent.locationY);
+      } else {
+        trackEvent('sky_gesture', { gesture_type: gesture.current.pinching ? 'pinch_zoom' : 'drag' });
+      }
     },
     onPanResponderTerminationRequest: () => false,
   })).current;
@@ -352,14 +363,20 @@ export default function App() {
   async function toggleCamera() {
     if (!cameraMode && !cameraPermission?.granted) {
       const result = await requestCameraPermission();
-      if (!result.granted) return;
+      if (!result.granted) {
+        trackEvent('camera_permission_denied');
+        return;
+      }
     }
-    setCameraMode((current) => !current);
+    const enabled = !cameraMode;
+    setCameraMode(enabled);
+    trackEvent('camera_view_toggled', { enabled });
   }
 
   function changeDisplay(option: keyof DisplayOptions, value: boolean) {
     setDisplay((current) => ({ ...current, [option]: value }));
     if (!value && ((option === 'stars' && selected?.kind === 'star') || (option === 'planets' && selected && isSolarSelection(selected.kind)) || (option === 'deepSky' && selected?.kind === 'deepSky') || (option === 'constellationLabels' && selected?.kind === 'constellation'))) setSelected(null);
+    trackEvent('display_option_changed', { option, enabled: value });
   }
 
   const direction = cardinalDirection(viewHeading);
@@ -367,7 +384,30 @@ export default function App() {
   const offsetHours = timeOffsetMinutes / 60;
   const timeOffsetLabel = timeOffsetMinutes === 0 ? 'Now' : `+${Number.isInteger(offsetHours) ? offsetHours : offsetHours.toFixed(1)}h`;
   const observationTimeLabel = observationTime.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  const adjustTime = (minutes: number) => setTimeOffsetMinutes((current) => clamp(current + minutes, 0, 72 * 60));
+  const adjustTime = (minutes: number) => {
+    const next = clamp(timeOffsetMinutes + minutes, 0, 72 * 60);
+    setTimeOffsetMinutes(next);
+    trackEvent('observation_time_changed', { step_minutes: minutes, offset_minutes: next });
+  };
+  const returnToNow = () => {
+    setTimeOffsetMinutes(0);
+    trackEvent('observation_time_reset');
+  };
+  const changeZoom = (direction: 'in' | 'out') => {
+    const next = clamp(direction === 'in' ? zoom * 1.35 : zoom / 1.35, 1, 6);
+    setZoom(next);
+    trackEvent('zoom_button_used', { direction, zoom_level: Number(next.toFixed(2)) });
+  };
+  const resumeTracking = () => {
+    setView({ heading: sensors.heading, elevation: sensors.elevation });
+    setTracking(true);
+    trackEvent('tracking_resumed');
+  };
+  const openWikipedia = (selection: Selection) => {
+    if (!selection.wikipediaTitle) return;
+    trackEvent('wikipedia_opened', { object_type: selection.kind, object_id: selection.id });
+    void Linking.openURL(wikipediaUrl(selection.wikipediaTitle));
+  };
   return (
     <View style={styles.app}>
       <StatusBar style="light" />
@@ -386,7 +426,7 @@ export default function App() {
               </View>
             </View>
           </View>
-          <Pressable accessibilityLabel="Display options" style={styles.menuButton} onPress={() => { setTimeOpen(false); setMenuOpen((open) => !open); }}>
+          <Pressable accessibilityLabel="Display options" style={styles.menuButton} onPress={() => { setTimeOpen(false); setMenuOpen(!menuOpen); trackEvent('sky_menu_toggled', { opened: !menuOpen }); }}>
             <Text style={styles.menuButtonText}>☰</Text>
           </Pressable>
         </View>
@@ -400,7 +440,7 @@ export default function App() {
           {searchQuery.trim() ? <View style={styles.searchResults}>
             {searchResults.length ? searchResults.map((entry) => <Pressable key={`${entry.kind}-${entry.id}`} style={styles.searchResult} onPress={() => centerSearchResult(entry)}><Text style={styles.searchResultName}>{entry.name}</Text><Text style={styles.searchResultKind}>{entry.kind === 'deepSky' ? 'deep sky' : entry.kind}</Text></Pressable>) : <Text style={styles.searchEmpty}>No matching object</Text>}
           </View> : <>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: displayOptionsOpen }} style={styles.submenuButton} onPress={() => setDisplayOptionsOpen((open) => !open)}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: displayOptionsOpen }} style={styles.submenuButton} onPress={() => { setDisplayOptionsOpen(!displayOptionsOpen); trackEvent('display_options_toggled', { opened: !displayOptionsOpen }); }}>
             <Text style={styles.submenuTitle}>Display Options</Text>
             <Text style={styles.submenuChevron}>{displayOptionsOpen ? '⌃' : '⌄'}</Text>
           </Pressable>
@@ -446,7 +486,10 @@ export default function App() {
                 : <Circle cx={body.x} cy={body.y} r={body.name === 'Sun' ? 8 : Math.max(4, body.size / 2)} fill={body.color} stroke={selected && isSolarSelection(selected.kind) && selected.id === body.name ? '#86efdf' : '#ffffff'} strokeOpacity={0.9} strokeWidth={selected && isSolarSelection(selected.kind) && selected.id === body.name ? 2.5 : body.name === 'Sun' ? 1.5 : 0.7} />}
               <SvgText x={body.x} y={body.y - 11 - (labelScale - 1) * 4} fill={selected && isSolarSelection(selected.kind) && selected.id === body.name ? '#86efdf' : body.name === 'Sun' ? '#ffe39a' : '#ffffff'} fontSize={11 * labelScale} fontWeight={selected && isSolarSelection(selected.kind) && selected.id === body.name ? '800' : '600'} textAnchor="middle">{body.name}</SvgText>
             </Fragment>) : null}
-            {display.reticle ? <><Line x1="50%" y1="47%" x2="50%" y2="53%" stroke="#86efdf" strokeOpacity={0.65} /><Line x1="46%" y1="50%" x2="54%" y2="50%" stroke="#86efdf" strokeOpacity={0.65} /></> : null}
+            {display.reticle ? <>
+              <Line x1={viewport.width / 2} y1={viewport.height * 0.47} x2={viewport.width / 2} y2={viewport.height * 0.53} stroke="#86efdf" strokeOpacity={0.65} />
+              <Line x1={viewport.width * 0.46} y1={viewport.height / 2} x2={viewport.width * 0.54} y2={viewport.height / 2} stroke="#86efdf" strokeOpacity={0.65} />
+            </> : null}
             {selectedProjected ? <Circle cx={selectedProjected.x} cy={selectedProjected.y} r={15} fill="none" stroke="#86efdf" strokeWidth={1.5} /> : null}
           </Svg>
           <View accessibilityLabel="Interactive sky map" style={styles.gestureSurface} {...panResponder.panHandlers} />
@@ -454,7 +497,7 @@ export default function App() {
           <Pressable accessibilityLabel={cameraMode ? 'Disable camera view' : 'Enable camera view'} accessibilityState={{ selected: cameraMode }} style={[styles.cameraButton, cameraMode && styles.cameraButtonActive]} onPress={toggleCamera}>
             <ApertureIcon active={cameraMode} />
           </Pressable>
-          <Pressable style={[styles.timeButton, timeOffsetMinutes > 0 && styles.timeButtonActive]} onPress={() => { setMenuOpen(false); setTimeOpen((open) => !open); }}>
+          <Pressable style={[styles.timeButton, timeOffsetMinutes > 0 && styles.timeButtonActive]} onPress={() => { setMenuOpen(false); setTimeOpen(!timeOpen); trackEvent('time_panel_toggled', { opened: !timeOpen }); }}>
             <Text style={styles.timeButtonLabel}>◷ {timeOffsetLabel}</Text>
           </Pressable>
           {timeOpen ? <View style={styles.timePanel}>
@@ -465,21 +508,21 @@ export default function App() {
               <TimeStep label="+6h" onPress={() => adjustTime(360)} />
               <TimeStep label="+12h" onPress={() => adjustTime(720)} />
             </View>
-            <Pressable style={styles.nowButton} onPress={() => setTimeOffsetMinutes(0)}><Text style={styles.nowButtonText}>Return to now</Text></Pressable>
+            <Pressable style={styles.nowButton} onPress={returnToNow}><Text style={styles.nowButtonText}>Return to now</Text></Pressable>
           </View> : null}
           <View style={styles.zoomControls}>
-            <Pressable style={styles.zoomButton} onPress={() => setZoom((value) => clamp(value * 1.35, 1, 6))}><Text style={styles.zoomText}>+</Text></Pressable>
+            <Pressable style={styles.zoomButton} onPress={() => changeZoom('in')}><Text style={styles.zoomText}>+</Text></Pressable>
             <Text style={styles.zoomValue}>{zoom.toFixed(1)}×</Text>
-            <Pressable style={styles.zoomButton} onPress={() => setZoom((value) => clamp(value / 1.35, 1, 6))}><Text style={styles.zoomText}>−</Text></Pressable>
+            <Pressable style={styles.zoomButton} onPress={() => changeZoom('out')}><Text style={styles.zoomText}>−</Text></Pressable>
           </View>
-          {!tracking ? <Pressable style={styles.resumeButton} onPress={() => { setView({ heading: sensors.heading, elevation: sensors.elevation }); setTracking(true); }}><Text style={styles.resumeText}>Resume tracking</Text></Pressable> : null}
+          {!tracking ? <Pressable style={styles.resumeButton} onPress={resumeTracking}><Text style={styles.resumeText}>Resume tracking</Text></Pressable> : null}
         </View>
 
         <View style={styles.bottomPanel}>
           {selected ? <View style={styles.objectCard}>
             {selectedImage ? <Image source={selectedImage} style={styles.objectImage} resizeMode="cover" /> : null}
             {selectedConstellation ? <ConstellationPreview constellation={selectedConstellation} /> : null}
-            <View style={styles.objectCopy}><Text style={styles.objectKind}>{selected.kind === 'deepSky' ? 'DEEP-SKY OBJECT' : selected.kind === 'planet' ? 'PLANET' : selected.kind === 'sun' ? 'STAR' : selected.kind === 'moon' ? 'MOON' : selected.kind === 'constellation' ? 'CONSTELLATION' : 'STAR'}</Text><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text>{selected.wikipediaTitle ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(wikipediaUrl(selected.wikipediaTitle!))}><Text style={styles.wikipediaLink}>Wikipedia ↗</Text></Pressable> : null}</View>
+            <View style={styles.objectCopy}><Text style={styles.objectKind}>{selected.kind === 'deepSky' ? 'DEEP-SKY OBJECT' : selected.kind === 'planet' ? 'PLANET' : selected.kind === 'sun' ? 'STAR' : selected.kind === 'moon' ? 'MOON' : selected.kind === 'constellation' ? 'CONSTELLATION' : 'STAR'}</Text><Text style={styles.objectName}>{selected.name}</Text><Text style={styles.objectMeta}>{selected.details}</Text>{selected.wikipediaTitle ? <Pressable accessibilityRole="link" onPress={() => openWikipedia(selected)}><Text style={styles.wikipediaLink}>Wikipedia ↗</Text></Pressable> : null}</View>
             <Pressable onPress={() => setSelected(null)}><Text style={styles.close}>×</Text></Pressable>
           </View> : <Text style={styles.hint}>{tracking ? 'Aim your phone. Pinch to zoom or drag to explore.' : 'Manual view active. Tap Resume tracking to follow your phone.'}</Text>}
           {sensors.headingAccuracy < 2 && sensors.ready && tracking ? <Text style={styles.calibration}>Move the phone in a figure eight to calibrate the compass.</Text> : null}

@@ -8,11 +8,13 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dsof.skyfinder",
+      "bundleIdentifier": "com.oesterer.dsof",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Your location places stars and planets correctly in the sky.",
         "NSCameraUsageDescription": "The camera helps you aim at and identify objects in the sky.",
-        "NSMotionUsageDescription": "Device motion keeps the sky map aligned as you aim your phone."
+        "NSMotionUsageDescription": "Device motion keeps the sky map aligned as you aim your phone.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "appleTeamId": "KFXZFZLNN2"
     },
@@ -35,6 +37,22 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "@react-native-firebase/app",
+        {
+          "ios": {
+            "disableSPM": true
+          }
+        }
+      ],
+      [
+        "@react-native-firebase/analytics",
+        {
+          "ios": {
+            "withoutAdIdSupport": true
+          }
+        }
+      ],
       "expo-status-bar",
       [
         "expo-sensors",
@@ -49,7 +67,21 @@
           "microphonePermission": false
         }
       ],
-      "expo-location"
-    ]
+      "expo-location",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d8c3f529-b69d-415b-b430-639121230128"
+      }
+    },
+    "owner": "aoesterer"
   }
 }
