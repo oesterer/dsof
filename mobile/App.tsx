@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, LayoutChangeEvent, Linking, PanResponder, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Image, LayoutChangeEvent, Linking, PanResponder, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
@@ -32,6 +32,8 @@ const CATALOG = (BRIGHT_STARS as CatalogStar[]).filter((star) => (
 const SKY_SHAPES = CONSTELLATIONS as Constellation[];
 const CONSTELLATION_NAMES = new Map(SKY_SHAPES.map((constellation) => [constellation.abbreviation, constellation.name]));
 const BASE_FOV = 62;
+const IS_IPAD = Platform.OS === 'ios' && Platform.isPad;
+const SHOW_SENSOR_DEBUG = process.env.EXPO_PUBLIC_SHOW_SENSOR_DEBUG === 'true';
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
 const isSolarSelection = (kind: Selection['kind']) => kind === 'planet' || kind === 'sun' || kind === 'moon';
@@ -431,6 +433,16 @@ export default function App() {
           </Pressable>
         </View>
 
+        {IS_IPAD && SHOW_SENSOR_DEBUG ? <View pointerEvents="none" style={styles.sensorDebug}>
+          <Text style={styles.sensorDebugTitle}>IPAD SENSOR DEBUG — test physical N or W</Text>
+          <Text style={styles.sensorDebugText}>IF {sensors.debug.interfaceOrientation}  CORR {sensors.debug.orientationCorrection}°  DM {sensors.debug.motionOrientation}°</Text>
+          <Text style={styles.sensorDebugText}>MAG {sensors.debug.magneticHeading.toFixed(1)}  TRUE {sensors.debug.trueHeading.toFixed(1)}  SRC {sensors.debug.headingSource}  ACC {sensors.headingAccuracy}</Text>
+          <Text style={styles.sensorDebugText}>RAW {sensors.debug.correctedHeading.toFixed(1)}  OUT {sensors.heading.toFixed(1)}  MODE {sensors.debug.headingSolution}</Text>
+          <Text style={styles.sensorDebugText}>G {sensors.debug.gravityX.toFixed(2)} {sensors.debug.gravityY.toFixed(2)} {sensors.debug.gravityZ.toFixed(2)}</Text>
+          <Text style={styles.sensorDebugText}>EL RAW {sensors.debug.rawElevation.toFixed(1)}  FILT {sensors.debug.filteredElevation.toFixed(1)}  OUT {sensors.elevation.toFixed(1)}</Text>
+          <Text style={styles.sensorDebugText}>VIEW {viewport.width.toFixed(0)}×{viewport.height.toFixed(0)}  CENTER {(viewport.width / 2).toFixed(0)},{(viewport.height / 2).toFixed(0)}</Text>
+        </View> : null}
+
         {menuOpen ? <ScrollView style={styles.menu} contentContainerStyle={styles.menuContent} keyboardShouldPersistTaps="handled">
           <View style={styles.menuHeadingRow}>
             <Text style={styles.menuTitle}>Sky menu</Text>
@@ -597,6 +609,9 @@ const styles = StyleSheet.create({
   eyebrow: { color: '#7d9bb3', fontSize: 8, fontWeight: '700', letterSpacing: 1.5 }, heading: { color: '#fff', fontSize: 24, fontWeight: '300', fontVariant: ['tabular-nums'] },
   elevationLabel: { color: '#7290a6', fontSize: 7, fontWeight: '700', letterSpacing: 0.8 }, elevationValue: { color: '#86efdf', fontSize: 17, fontWeight: '600', fontVariant: ['tabular-nums'] },
   menuButton: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, menuButtonText: { color: '#dcecf7', fontSize: 20 },
+  sensorDebug: { position: 'absolute', zIndex: 12, top: 82, left: 18, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: '#efc87a', backgroundColor: 'rgba(3,8,18,0.9)' },
+  sensorDebugTitle: { color: '#efc87a', fontSize: 9, fontWeight: '800', marginBottom: 3 },
+  sensorDebugText: { color: '#dcecf7', fontSize: 9, lineHeight: 12, fontFamily: 'Menlo', fontVariant: ['tabular-nums'] },
   menu: { position: 'absolute', zIndex: 20, top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#091725' }, menuContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 64, paddingBottom: 24 }, menuHeadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }, menuTitle: { color: '#fff', fontWeight: '700', fontSize: 21 }, menuClose: { color: '#a9becd', fontSize: 32, lineHeight: 32, paddingLeft: 20, paddingVertical: 6 }, searchInput: { height: 46, borderRadius: 12, borderWidth: 1, borderColor: '#31546b', backgroundColor: '#0d2030', color: '#fff', paddingHorizontal: 13, fontSize: 15, marginBottom: 12 }, searchResults: { paddingTop: 3 }, searchResult: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#213a4b' }, searchResultName: { color: '#eef7fc', fontSize: 14, flex: 1, paddingRight: 8 }, searchResultKind: { color: '#7895a9', fontSize: 10, textTransform: 'uppercase' }, searchEmpty: { color: '#7895a9', textAlign: 'center', paddingVertical: 22 }, submenuButton: { minHeight: 52, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#31546b', borderRadius: 13, backgroundColor: '#0d2030' }, submenuTitle: { color: '#eef7fc', fontSize: 16, fontWeight: '700' }, submenuChevron: { color: '#86efdf', fontSize: 21 }, displayOptions: { marginTop: 8, paddingHorizontal: 14, paddingVertical: 4, borderWidth: 1, borderColor: '#213a4b', borderRadius: 13, backgroundColor: 'rgba(13,32,48,0.58)' }, menuRow: { minHeight: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuLabel: { color: '#d6e5ee', fontSize: 14 },
   sky: { flex: 1, overflow: 'hidden' }, gestureSurface: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }, centerMessage: { position: 'absolute', top: '40%', left: 30, right: 30, alignItems: 'center', padding: 20, borderRadius: 18, backgroundColor: 'rgba(3,8,18,0.82)' }, centerTitle: { color: '#fff', fontSize: 18, fontWeight: '600' }, centerCopy: { color: '#9bb1c3', textAlign: 'center', marginTop: 6, lineHeight: 19 },
   cameraButton: { position: 'absolute', left: 14, bottom: 14, width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 23, borderWidth: 1, borderColor: '#29465c', backgroundColor: 'rgba(3,8,18,0.82)' }, cameraButtonActive: { borderColor: '#86efdf', backgroundColor: '#86efdf' },

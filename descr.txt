@@ -1,0 +1,39 @@
+• ### Promotional Text
+
+Explore the sky in real time. Find stars, planets, constellations and deep-sky objects, or advance time to plan your next night of stargazing.
+
+  ### Description
+
+  Deep Sky Object Finder turns your iPhone or iPad into an interactive map of the sky.
+
+  Move your device to explore the sky in real time using its heading and elevation sensors. Identify
+  visible stars, planets, the Sun, the Moon, constellations, and deep-sky objects. You can also browse
+  manually, zoom in for a closer look, or search for a specific object and center it on the display.
+
+  Features include:
+
+  - Live sky tracking using device orientation
+  - Stars above and below the horizon
+  - Planets, the Sun, and the Moon with lunar phases
+  - Messier deep-sky objects
+  - Constellation lines, names, illustrations, and descriptions
+  - Tap objects and constellation names for additional information
+  - Links to relevant Wikipedia articles
+  - Search and automatic object centering
+  - Adjustable observation time for planning later in the day or night
+  - Pinch-to-zoom and manual sky navigation
+  - Optional camera-assisted aiming view
+  - Right ascension and declination grid
+  - Horizon and ecliptic overlays
+  - Configurable display options
+  - Offline sky-map operation after installation
+
+  Whether you are learning the constellations, looking for a planet, or planning an evening under the
+  stars, Deep Sky Object Finder helps you understand what is in the sky and where to find it.
+
+  Location and motion access are used to align the sky map with your surroundings. Camera access is
+  optional and is used only when you enable the camera-assisted aiming view.
+
+  ### Keywords
+
+  astronomy,stargazing,sky map,stars,planets,constellations,moon,Messier,telescope,night sky

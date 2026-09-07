@@ -3,11 +3,26 @@ import * as Location from 'expo-location';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { DeviceMotion } from 'expo-sensors';
 
-export type SensorState = { heading: number; elevation: number; latitude: number | null; longitude: number | null; headingAccuracy: number; ready: boolean; error: string | null };
+export type SensorDebugState = {
+  interfaceOrientation: string;
+  orientationCorrection: number;
+  motionOrientation: number;
+  magneticHeading: number;
+  trueHeading: number;
+  headingSource: 'true' | 'magnetic';
+  correctedHeading: number;
+  headingSolution: 'normal' | 'opposite' | 'frozen';
+  gravityX: number;
+  gravityY: number;
+  gravityZ: number;
+  rawElevation: number;
+  filteredElevation: number;
+};
+
+export type SensorState = { heading: number; elevation: number; latitude: number | null; longitude: number | null; headingAccuracy: number; ready: boolean; error: string | null; debug: SensorDebugState };
 
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
 const headingDistance = (first: number, second: number) => Math.abs(((first - second + 540) % 360) - 180);
-const signedHeadingDelta = (target: number, current: number) => ((target - current + 540) % 360) - 180;
 const ELEVATION_DEADBAND = 0.18;
 
 // Expo reports motion axes in the device's portrait coordinate system, while
@@ -29,6 +44,23 @@ function interfaceOrientationDegrees(value: ScreenOrientation.Orientation) {
   }
 }
 
+function interfaceOrientationName(value: ScreenOrientation.Orientation) {
+  switch (value) {
+    case ScreenOrientation.Orientation.PORTRAIT_UP: return 'portrait-up';
+    case ScreenOrientation.Orientation.PORTRAIT_DOWN: return 'portrait-down';
+    case ScreenOrientation.Orientation.LANDSCAPE_LEFT: return 'landscape-left';
+    case ScreenOrientation.Orientation.LANDSCAPE_RIGHT: return 'landscape-right';
+    default: return 'unknown';
+  }
+}
+
+const initialDebugState: SensorDebugState = {
+  interfaceOrientation: 'unknown', orientationCorrection: 0, motionOrientation: 0,
+  magneticHeading: 0, trueHeading: -1, headingSource: 'magnetic', correctedHeading: 0,
+  headingSolution: 'normal', gravityX: 0, gravityY: 0, gravityZ: 0,
+  rawElevation: 0, filteredElevation: 0,
+};
+
 export function elevationFromGravity(gravity: { x: number; y: number; z: number }, orientation = 0) {
   const radians = screenOrientationDegrees(orientation) * Math.PI / 180;
   const screenUpGravity = gravity.y * Math.cos(radians) - gravity.x * Math.sin(radians);
@@ -36,12 +68,13 @@ export function elevationFromGravity(gravity: { x: number; y: number; z: number 
 }
 
 export function useSkySensors(): SensorState {
-  const [state, setState] = useState<SensorState>({ heading: 0, elevation: 25, latitude: null, longitude: null, headingAccuracy: 0, ready: false, error: null });
+  const [state, setState] = useState<SensorState>({ heading: 0, elevation: 25, latitude: null, longitude: null, headingAccuracy: 0, ready: false, error: null, debug: initialDebugState });
   const lastHeading = useRef<number | null>(null);
   const currentElevation = useRef(25);
   const filteredElevation = useRef<number | null>(null);
   const publishedElevation = useRef(25);
   const screenOrientation = useRef(0);
+  const screenOrientationName = useRef('unknown');
 
   useEffect(() => {
     let active = true;
@@ -58,17 +91,21 @@ export function useSkySensors(): SensorState {
         setState((previous) => ({ ...previous, latitude: location.coords.latitude, longitude: location.coords.longitude }));
         const initialOrientation = await ScreenOrientation.getOrientationAsync();
         screenOrientation.current = interfaceOrientationDegrees(initialOrientation);
+        screenOrientationName.current = interfaceOrientationName(initialOrientation);
         orientationSubscription = ScreenOrientation.addOrientationChangeListener((event) => {
           const nextOrientation = interfaceOrientationDegrees(event.orientationInfo.orientation);
+          screenOrientationName.current = interfaceOrientationName(event.orientationInfo.orientation);
           if (nextOrientation === screenOrientation.current) return;
           screenOrientation.current = nextOrientation;
           lastHeading.current = null;
           filteredElevation.current = null;
         });
         headingSubscription = await Location.watchHeadingAsync((measurement) => {
-          const portraitHeading = measurement.trueHeading >= 0 ? measurement.trueHeading : measurement.magHeading;
+          const headingSource = measurement.trueHeading >= 0 ? 'true' : 'magnetic';
+          const portraitHeading = headingSource === 'true' ? measurement.trueHeading : measurement.magHeading;
           const rawHeading = normalizeHeading(portraitHeading - screenOrientation.current);
           let heading = rawHeading;
+          let headingSolution: SensorDebugState['headingSolution'] = 'normal';
           if (lastHeading.current !== null && currentElevation.current >= 35) {
             // Core Location can report the opposite compass solution when a
             // portrait phone is steeply tilted. Select the solution continuous
@@ -76,26 +113,28 @@ export function useSkySensors(): SensorState {
             // retain the last useful heading until the phone tilts back down.
             if (currentElevation.current >= 88) {
               heading = lastHeading.current;
+              headingSolution = 'frozen';
             } else {
               const oppositeHeading = normalizeHeading(rawHeading + 180);
-              heading = headingDistance(oppositeHeading, lastHeading.current) < headingDistance(rawHeading, lastHeading.current)
-                ? oppositeHeading
-                : rawHeading;
+              if (headingDistance(oppositeHeading, lastHeading.current) < headingDistance(rawHeading, lastHeading.current)) {
+                heading = oppositeHeading;
+                headingSolution = 'opposite';
+              }
             }
           }
-          const previousHeading = lastHeading.current;
-          if (previousHeading !== null) {
-            const delta = signedHeadingDelta(heading, previousHeading);
-            // Low-pass small compass jitter, but catch up quickly during an
-            // intentional turn. Using the signed shortest arc keeps 359° → 0°
-            // smooth instead of sending the map around the long way.
-            const alpha = Math.abs(delta) > 30 ? 0.65 : Math.abs(delta) > 10 ? 0.42 : Math.abs(delta) > 3 ? 0.26 : 0.14;
-            heading = normalizeHeading(previousHeading + delta * alpha);
-          }
           lastHeading.current = heading;
-          setState((previous) => ({ ...previous, heading, headingAccuracy: measurement.accuracy, ready: previous.latitude !== null }));
+          setState((previous) => ({ ...previous, heading, headingAccuracy: measurement.accuracy, ready: previous.latitude !== null, debug: {
+            ...previous.debug,
+            interfaceOrientation: screenOrientationName.current,
+            orientationCorrection: screenOrientation.current,
+            magneticHeading: measurement.magHeading,
+            trueHeading: measurement.trueHeading,
+            headingSource,
+            correctedHeading: rawHeading,
+            headingSolution,
+          } }));
         });
-        DeviceMotion.setUpdateInterval(40);
+        DeviceMotion.setUpdateInterval(80);
         motionSubscription = DeviceMotion.addListener((measurement) => {
           // DeviceMotion.orientation has proven unreliable on iPad in
           // landscape; use the actual interface orientation captured above.
@@ -126,7 +165,18 @@ export function useSkySensors(): SensorState {
           currentElevation.current = smoothedElevation;
           if (Math.abs(smoothedElevation - publishedElevation.current) < ELEVATION_DEADBAND) return;
           publishedElevation.current = smoothedElevation;
-          setState((previous) => ({ ...previous, elevation: smoothedElevation }));
+          const gravity = measurement.accelerationIncludingGravity;
+          setState((previous) => ({ ...previous, elevation: smoothedElevation, debug: {
+            ...previous.debug,
+            interfaceOrientation: screenOrientationName.current,
+            orientationCorrection: screenOrientation.current,
+            motionOrientation: measurement.orientation,
+            gravityX: gravity?.x ?? 0,
+            gravityY: gravity?.y ?? 0,
+            gravityZ: gravity?.z ?? 0,
+            rawElevation,
+            filteredElevation: smoothedElevation,
+          } }));
         });
       } catch (error) {
         if (active) setState((previous) => ({ ...previous, error: error instanceof Error ? error.message : 'Unable to start sky sensors.' }));
